@@ -1,0 +1,22 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /path/to/your/logs/*.log  # 替换为您的实际日志路径
+  json.keys_under_root: true    # 将 JSON 字段提升到根级别
+  json.add_error_key: true      # 添加解析错误信息
+  json.message_key: message     # 指定消息字段
+  fields:
+    application: cc-starship    # 添加自定义字段标识应用
+  fields_under_root: true       # 将字段提升到根级别
+
+# 输出到 Logstash
+output.logstash:
+  hosts: ["localhost:5044"]     # Logstash 监听地址
+
+# 或者直接输出到 Elasticsearch
+# output.elasticsearch:
+#  hosts: ["localhost:9200"]
+#  username: "elastic"
+#  password: "your_password"
+#  index: "cc-starship-%{+yyyy.MM.dd}"

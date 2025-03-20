@@ -1,0 +1,78 @@
+app:
+  name: "cc-starship"
+  environment: "development"
+
+server:
+  address: ":8080"
+  readTimeout: "15s"
+  writeTimeout: "15s"
+  idleTimeout: "60s"
+
+databases:
+  default: ""
+  
+  postgresql:
+    enabled: false
+    url: "postgres://postgres:postgres@localhost:5432/ccstarship?sslmode=disable"
+    maxOpenConns: 25
+    maxIdleConns: 25
+    connMaxLifetime: "5m"
+  
+  elasticsearch:
+    enabled: false
+    addresses:
+      - "http://localhost:9200"
+    username: ""
+    password: ""
+  
+  vectordb:
+    enabled: false
+    type: "pinecone"
+    endpoint: ""
+    apiKey: ""
+    
+  redis:
+    enabled: false
+    address: "localhost:6379"
+    password: ""
+    db: 0
+    poolSize: 10
+    minIdleConns: 5
+    maxRetries: 3
+    dialTimeout: "5s"
+
+auth:
+  enabled: true
+  enabledMethods:
+    - "jwt"
+  jwt:
+    secretKey: "your-secret-key-here"
+    issuer: "cc-starship-api"
+    expiryDuration: "24h"
+
+features:
+  enable_auth: true
+  enable_rate_limiting: false
+  enable_cors: true
+  enable_caching: false
+
+logger:
+  level: "info"
+  format: "json"
+  processors:
+    console:
+      enabled: true
+    file:
+      enabled: true
+      path: "logs/app.log"
+      rotation:
+        max_size: "100MB"
+        max_age: "7d"
+        max_backups: 10
+    elk:
+      enabled: false
+      endpoint: "http://localhost:9200"
+      index_prefix: "cc-starship"
+  tracing:
+    enabled: true
+    sampler: 1.0
