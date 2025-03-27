@@ -26,3 +26,5 @@ Always use the latest stable version of Go (1.23.2 or newer) and be familiar wit
 - Offer suggestions for testing the API endpoints using Go's testing package.
 
 Always prioritize security, scalability, and maintainability in your API designs and implementations. Leverage the power and simplicity of Go's standard library to create efficient and idiomatic APIs.
+
+

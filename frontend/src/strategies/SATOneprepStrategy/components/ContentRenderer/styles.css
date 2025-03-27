@@ -1,0 +1,180 @@
+/* SAT Oneprep Content Renderer Styles */
+
+/* 内容组件基础样式 */
+.sat-content {
+  width: 100%;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--sat-text-color, #333);
+  font-family: var(--sat-font-family, 'Arial, sans-serif');
+}
+
+/* 组件基础类 */
+.sat-component {
+  font-family: inherit;
+}
+
+/* 布局类型 */
+.block-component {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.inline-component {
+  display: inline;
+}
+
+/* 段落容器样式 */
+.paragraph-container {
+  margin-bottom: 1rem;
+}
+
+/* 文本组件样式 */
+.text-component {
+  display: inline;
+}
+
+/* 公式组件样式 */
+.formula-component {
+  display: inline-block;
+}
+
+.formula-block {
+  display: block;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.formula-inline {
+  display: inline-flex;
+  align-items: center;
+}
+
+.formula-container {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* 图片组件样式 */
+.image-component {
+  max-width: 100%;
+}
+
+.image-container {
+  margin: 0.5rem 0;
+  max-width: 100%;
+}
+
+.svg-container {
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* 图表组件样式 */
+.figure-component {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.figure-content {
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* 表格组件样式 */
+.table-component {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 1.5rem 0;
+}
+
+.table-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.table-wrapper th,
+.table-wrapper td {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.table-wrapper th {
+  background-color: #f2f2f2;
+}
+
+/* HTML组件样式 */
+.html-content {
+  max-width: 100%;
+}
+
+/* 样式类 */
+.style-p {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.style-center {
+  text-align: center;
+}
+
+.style-right {
+  text-align: right;
+}
+
+.style-indent {
+  padding-left: 2rem;
+}
+
+.style-strong, .style-b {
+  font-weight: bold;
+}
+
+.style-em, .style-i {
+  font-style: italic;
+}
+
+.style-sup {
+  vertical-align: super;
+  font-size: smaller;
+}
+
+.style-sub {
+  vertical-align: sub;
+  font-size: smaller;
+}
+
+/* 交互式组件样式 */
+.blank-component {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .formula-block {
+    font-size: 0.9em;
+  }
+  
+  .table-wrapper {
+    font-size: 0.9em;
+  }
+}
+
+/* 黑暗模式支持 */
+@media (prefers-color-scheme: dark) {
+  .sat-content {
+    --sat-text-color: #e0e0e0;
+  }
+  
+  .table-wrapper th {
+    background-color: #333;
+  }
+  
+  .table-wrapper th,
+  .table-wrapper td {
+    border-color: #444;
+  }
+} 

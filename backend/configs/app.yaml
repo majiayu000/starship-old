@@ -12,8 +12,8 @@ databases:
   default: ""
   
   postgresql:
-    enabled: false
-    url: "postgres://postgres:postgres@localhost:5432/ccstarship?sslmode=disable"
+    enabled: true
+    url: "postgres://postgres:postgres@172.16.168.150:55432/postgres?sslmode=disable"
     maxOpenConns: 25
     maxIdleConns: 25
     connMaxLifetime: "5m"

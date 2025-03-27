@@ -1,0 +1,109 @@
+# 输入配置
+filebeat.inputs:
+# 后端应用日志输入（JSON格式）
+- type: log
+  enabled: true
+  paths:
+    # 应用程序日志路径，基于应用配置文件中的设置
+    - /app/logs/*.log
+    - /usr/share/filebeat/project_logs/*.log
+  json:
+    keys_under_root: true
+    add_error_key: true
+    message_key: message
+    overwrite_keys: true
+  fields:
+    log_type: application
+    service: cc-starship
+    timezone: Asia/Shanghai
+  fields_under_root: true
+  tags: ["application", "backend", "api"]
+  
+  # 多行处理
+  multiline:
+    pattern: '^{'
+    negate: true
+    match: after
+    max_lines: 500
+    timeout: 5s
+
+# 处理器配置
+processors:
+  # 添加元数据
+  - add_host_metadata: ~
+  
+  # 字段处理和增强
+  - add_fields:
+      target: ''
+      fields:
+        environment: development
+  
+  # 时间戳处理（北京时间 UTC+8）
+  - timestamp:
+      field: timestamp
+      layouts:
+        - '2006-01-02T15:04:05Z'
+        - '2006-01-02T15:04:05.999Z'
+        - '2006-01-02T15:04:05'
+        - '2006-01-02 15:04:05'
+        - '2006/01/02 15:04:05'
+        - 'UNIX'
+        - 'UNIX_MS'
+      target_field: "@timestamp"
+      timezone: "Asia/Shanghai"
+      ignore_missing: true
+  
+  # 添加时区信息
+  - add_fields:
+      target: ''
+      fields:
+        timezone: "Asia/Shanghai"
+
+# 时间设置
+setup.timezone: "Asia/Shanghai"
+
+# 使用传统方式配置索引模板
+setup.template.enabled: true
+setup.template.name: "filebeat-logs"  # 更改模板名称，避免与数据流命名冲突
+setup.template.pattern: "filebeat-logs-*"  # 匹配索引名称的模式
+setup.template.type: "index"  # 明确指定为索引模板，非数据流
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 1
+setup.template.overwrite: true
+# 禁用组件模板 (8.x feature)
+setup.template.legacy.enabled: true  # 使用传统索引模板
+
+# 完全禁用ILM及数据流
+setup.ilm.enabled: false
+setup.ilm.check_exists: false
+setup.ilm.overwrite: false
+
+# 输出配置 - 使用与模板匹配的索引命名模式
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+  username: "elastic"
+  password: "changeme"
+  index: "filebeat-logs-%{+yyyy.MM.dd}"  # 索引名与模板模式匹配
+  pipeline: "timezone-conversion"
+  # 禁用数据流
+  allow_older_versions: true
+  
+# 启用监控
+monitoring.enabled: true
+monitoring.elasticsearch:
+  hosts: ["localhost:9200"]
+  username: "elastic"
+  password: "changeme"
+
+# 日志配置
+logging:
+  level: info
+  to_stderr: true
+  metrics.enabled: false
+  
+# 设置更大的缓冲区和批处理
+queue.mem:
+  events: 4096
+  flush.min_events: 512
+  flush.timeout: 5s 

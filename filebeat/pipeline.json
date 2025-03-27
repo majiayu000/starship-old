@@ -1,0 +1,16 @@
+{
+  "description": "Pipeline for timezone conversion to Asia/Shanghai",
+  "processors": [
+    {
+      "date": {
+        "field": "@timestamp",
+        "timezone": "Asia/Shanghai",
+        "formats": [
+          "ISO8601",
+          "UNIX",
+          "UNIX_MS"
+        ]
+      }
+    }
+  ]
+} 

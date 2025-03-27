@@ -15,18 +15,27 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	router       *gin.Engine
-	server       *http.Server
-	cfg          *config.Config
-	logger       *logger.Logger
-	logManager   *logger.LogManager
-	userService  ports.UserService
-	authService  ports.AuthService
-	cacheService *cache.CacheService
+	router        *gin.Engine
+	server        *http.Server
+	cfg           *config.Config
+	logger        *logger.Logger
+	logManager    *logger.LogManager
+	userService   ports.UserService
+	authService   ports.AuthService
+	cacheService  *cache.CacheService
+	reviewService ports.ReviewService
 }
 
 // NewServer creates a new HTTP server
-func NewServer(cfg *config.Config, logger *logger.Logger, userService ports.UserService, authService ports.AuthService, logManager *logger.LogManager, cacheService *cache.CacheService) *Server {
+func NewServer(
+	cfg *config.Config,
+	logger *logger.Logger,
+	userService ports.UserService,
+	authService ports.AuthService,
+	logManager *logger.LogManager,
+	cacheService *cache.CacheService,
+	reviewService ports.ReviewService,
+) *Server {
 	// Set Gin mode based on environment
 	if cfg.App.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -58,21 +67,30 @@ func NewServer(cfg *config.Config, logger *logger.Logger, userService ports.User
 	}
 
 	return &Server{
-		router:       router,
-		server:       server,
-		cfg:          cfg,
-		logger:       logger,
-		logManager:   logManager,
-		userService:  userService,
-		authService:  authService,
-		cacheService: cacheService,
+		router:        router,
+		server:        server,
+		cfg:           cfg,
+		logger:        logger,
+		logManager:    logManager,
+		userService:   userService,
+		authService:   authService,
+		cacheService:  cacheService,
+		reviewService: reviewService,
 	}
 }
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	// Register routes
-	routes.RegisterRoutes(s.router, s.userService, s.authService, s.cacheService, s.cfg, s.logger)
+	routes.RegisterRoutes(
+		s.router,
+		s.userService,
+		s.authService,
+		s.cacheService,
+		s.reviewService,
+		s.cfg,
+		s.logger,
+	)
 
 	// Log server start
 	s.logger.Info("Starting HTTP server on " + s.cfg.Server.Address)

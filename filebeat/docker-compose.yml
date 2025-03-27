@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.17.3
+    user: root  # 需要 root 权限来读取日志文件
+    network_mode: "host"  # 使用主机网络模式，可以直接访问本机服务
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ../logs:/app/logs:ro  # 从项目根目录挂载应用日志
+      - ../../logs:/usr/share/filebeat/project_logs:ro  # 备用日志路径
+    environment:
+      - strict.perms=false
+    command: filebeat -e
+    restart: unless-stopped 

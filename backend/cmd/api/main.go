@@ -69,6 +69,7 @@ func main() {
 	// Initialize services based on available databases
 	var userService ports.UserService
 	var authService ports.AuthService
+	var reviewService ports.ReviewService
 
 	// Initialize user and auth services only if PostgreSQL is available
 	if dbManager.PostgreSQL != nil {
@@ -77,6 +78,12 @@ func main() {
 
 		// Create repositories
 		userRepo := postgres.NewUserRepository(dbManager.PostgreSQL, l)
+
+		// Create review repository
+		reviewRepo := postgres.NewReviewRepository(dbManager.PostgreSQL, l)
+
+		// Create review service
+		reviewService = services.NewReviewService(reviewRepo, l)
 
 		// Create services
 		userService = services.NewUserService(userRepo, l)
@@ -109,7 +116,7 @@ func main() {
 	}
 
 	// Create and start HTTP server
-	server := api.NewServer(cfg, l, userService, authService, logManager, cacheService)
+	server := api.NewServer(cfg, l, userService, authService, logManager, cacheService, reviewService)
 
 	// Start server in a goroutine
 	go func() {
