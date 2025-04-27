@@ -7,32 +7,34 @@ import { Button } from '@/components/ui/button';
 
 const NavigationHeader: React.FC = () => {
   const pathname = usePathname();
-  
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-white">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">
-          <h1 className="text-xl font-bold mr-8">SAT题目审核系统</h1>
+          <Link href="/">
+            <h1 className="text-xl font-bold mr-8">Starter Template</h1>
+          </Link>
           <nav className="flex space-x-2">
-            <Link href="/review">
+            <Link href="/items">
               <Button
-                variant={pathname === '/review' ? 'default' : 'ghost'}
+                variant={pathname === '/items' ? 'default' : 'ghost'}
                 className="text-sm font-medium"
               >
-                审核页面
+                Items
               </Button>
             </Link>
-            <Link href="/questions">
+            <Link href="/dashboard">
               <Button
-                variant={pathname === '/questions' ? 'default' : 'ghost'}
+                variant={pathname === '/dashboard' ? 'default' : 'ghost'}
                 className="text-sm font-medium"
               >
-                题目审核
+                Dashboard
               </Button>
             </Link>
           </nav>
         </div>
-        
+
         <div className="text-sm text-gray-500">
           <span>API: {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'}</span>
         </div>
@@ -41,4 +43,4 @@ const NavigationHeader: React.FC = () => {
   );
 };
 
-export default NavigationHeader; 
+export default NavigationHeader;

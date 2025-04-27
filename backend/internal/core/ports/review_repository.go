@@ -6,20 +6,23 @@ import (
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 )
 
-// ReviewRepository defines the interface for interacting with reviewable items
-type ReviewRepository interface {
-	// FindByOriginalID retrieves a reviewable item by its original ID and data source
-	FindByOriginalID(ctx context.Context, dataSource, originalID string) (interface{}, error)
+// GenericRepository defines a generic repository interface for any entity
+type GenericRepository interface {
+	// FindByID retrieves an item by its ID
+	FindByID(ctx context.Context, id string) (*domain.GenericItem, error)
 
-	// FindAll retrieves all reviewable items with pagination and filtering
+	// FindAll retrieves all items with pagination and filtering
 	FindAll(ctx context.Context, params domain.QueryParams) (*domain.PaginatedResult, error)
 
-	// UpdateReviewStatus updates the review status of a reviewable item
-	UpdateReviewStatus(ctx context.Context, dataSource, originalID string, update domain.ReviewStatusUpdate) error
+	// Create creates a new item
+	Create(ctx context.Context, item *domain.GenericItem) error
 
-	// GetFilterOptions retrieves available options for filtering (domains, skills, etc.)
-	GetFilterOptions(ctx context.Context, dataSource string) (map[string][]string, error)
+	// Update updates an existing item
+	Update(ctx context.Context, item *domain.GenericItem) error
 
-	// GetDataSources returns a list of available data sources
-	GetDataSources(ctx context.Context) ([]string, error)
+	// UpdateStatus updates the status of an item
+	UpdateStatus(ctx context.Context, id string, update domain.StatusUpdate) error
+
+	// Delete deletes an item
+	Delete(ctx context.Context, id string) error
 }

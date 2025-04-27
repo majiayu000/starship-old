@@ -15,15 +15,15 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	router        *gin.Engine
-	server        *http.Server
-	cfg           *config.Config
-	logger        *logger.Logger
-	logManager    *logger.LogManager
-	userService   ports.UserService
-	authService   ports.AuthService
-	cacheService  *cache.CacheService
-	reviewService ports.ReviewService
+	router         *gin.Engine
+	server         *http.Server
+	cfg            *config.Config
+	logger         *logger.Logger
+	logManager     *logger.LogManager
+	userService    ports.UserService
+	authService    ports.AuthService
+	cacheService   *cache.CacheService
+	genericService ports.GenericService
 }
 
 // NewServer creates a new HTTP server
@@ -34,7 +34,7 @@ func NewServer(
 	authService ports.AuthService,
 	logManager *logger.LogManager,
 	cacheService *cache.CacheService,
-	reviewService ports.ReviewService,
+	genericService ports.GenericService,
 ) *Server {
 	// Set Gin mode based on environment
 	if cfg.App.Environment == "production" {
@@ -67,15 +67,15 @@ func NewServer(
 	}
 
 	return &Server{
-		router:        router,
-		server:        server,
-		cfg:           cfg,
-		logger:        logger,
-		logManager:    logManager,
-		userService:   userService,
-		authService:   authService,
-		cacheService:  cacheService,
-		reviewService: reviewService,
+		router:         router,
+		server:         server,
+		cfg:            cfg,
+		logger:         logger,
+		logManager:     logManager,
+		userService:    userService,
+		authService:    authService,
+		cacheService:   cacheService,
+		genericService: genericService,
 	}
 }
 
@@ -87,7 +87,15 @@ func (s *Server) Start() error {
 		s.userService,
 		s.authService,
 		s.cacheService,
-		s.reviewService,
+		s.cfg,
+		s.logger,
+	)
+
+	// Register generic routes
+	routes.RegisterGenericRoutes(
+		s.router,
+		s.genericService,
+		s.authService,
 		s.cfg,
 		s.logger,
 	)

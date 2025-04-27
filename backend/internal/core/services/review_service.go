@@ -9,43 +9,33 @@ import (
 	"github.com/majiayu000/cc-starship/pkg/logger"
 )
 
-// ReviewService implements the service for handling reviewable items
-type ReviewService struct {
-	repository ports.ReviewRepository
+// GenericService implements the service for handling generic items
+type GenericService struct {
+	repository ports.GenericRepository
 	logger     *logger.Logger
 }
 
-// NewReviewService creates a new ReviewService
-func NewReviewService(repository ports.ReviewRepository, logger *logger.Logger) *ReviewService {
-	return &ReviewService{
+// NewGenericService creates a new GenericService
+func NewGenericService(repository ports.GenericRepository, logger *logger.Logger) *GenericService {
+	return &GenericService{
 		repository: repository,
 		logger:     logger,
 	}
 }
 
-// GetByOriginalID retrieves a reviewable item by its original ID and data source
-func (s *ReviewService) GetByOriginalID(ctx context.Context, dataSource, originalID string) (interface{}, error) {
-	// Validate data source
-	if !domain.IsValidDataSource(dataSource) {
-		return nil, fmt.Errorf("invalid data source: %s", dataSource)
-	}
-
+// GetByID retrieves an item by its ID
+func (s *GenericService) GetByID(ctx context.Context, id string) (*domain.GenericItem, error) {
 	// Log the operation
-	s.logger.Info(fmt.Sprintf("Retrieving item with original ID %s from data source %s", originalID, dataSource))
+	s.logger.Info(fmt.Sprintf("Retrieving item with ID %s", id))
 
 	// Call the repository
-	return s.repository.FindByOriginalID(ctx, dataSource, originalID)
+	return s.repository.FindByID(ctx, id)
 }
 
-// GetAll retrieves all reviewable items with pagination and filtering
-func (s *ReviewService) GetAll(ctx context.Context, params domain.QueryParams) (*domain.PaginatedResult, error) {
-	// Validate data source
-	if !domain.IsValidDataSource(params.DataSource) {
-		return nil, fmt.Errorf("invalid data source: %s", params.DataSource)
-	}
-
+// GetAll retrieves all items with pagination and filtering
+func (s *GenericService) GetAll(ctx context.Context, params domain.QueryParams) (*domain.PaginatedResult, error) {
 	// Log the operation
-	s.logger.Info(fmt.Sprintf("Retrieving items from data source %s with params: %+v", params.DataSource, params))
+	s.logger.Info(fmt.Sprintf("Retrieving items with params: %+v", params))
 
 	// Set default pagination values if not provided
 	if params.Page <= 0 {
@@ -59,45 +49,43 @@ func (s *ReviewService) GetAll(ctx context.Context, params domain.QueryParams) (
 	return s.repository.FindAll(ctx, params)
 }
 
-// ReviewItem reviews an item
-func (s *ReviewService) ReviewItem(ctx context.Context, dataSource, originalID string, update domain.ReviewStatusUpdate) error {
-	// Validate data source
-	if !domain.IsValidDataSource(dataSource) {
-		return fmt.Errorf("invalid data source: %s", dataSource)
-	}
-
-	// Validate review status
-	if !domain.IsValidReviewStatus(update.Status) {
-		return fmt.Errorf("invalid review status: %s", update.Status)
-	}
-
+// Create creates a new item
+func (s *GenericService) Create(ctx context.Context, item *domain.GenericItem) error {
 	// Log the operation
-	s.logger.Info(fmt.Sprintf("Updating review status of item with original ID %s from data source %s to %s",
-		originalID, dataSource, update.Status))
+	s.logger.Info(fmt.Sprintf("Creating new item with name: %s", item.Name))
 
 	// Call the repository
-	return s.repository.UpdateReviewStatus(ctx, dataSource, originalID, update)
+	return s.repository.Create(ctx, item)
 }
 
-// GetFilterOptions retrieves available options for filtering
-func (s *ReviewService) GetFilterOptions(ctx context.Context, dataSource string) (map[string][]string, error) {
-	// Validate data source
-	if !domain.IsValidDataSource(dataSource) {
-		return nil, fmt.Errorf("invalid data source: %s", dataSource)
+// Update updates an existing item
+func (s *GenericService) Update(ctx context.Context, item *domain.GenericItem) error {
+	// Log the operation
+	s.logger.Info(fmt.Sprintf("Updating item with ID: %s", item.ID))
+
+	// Call the repository
+	return s.repository.Update(ctx, item)
+}
+
+// UpdateStatus updates the status of an item
+func (s *GenericService) UpdateStatus(ctx context.Context, id string, update domain.StatusUpdate) error {
+	// Validate status
+	if !domain.IsValidStatus(update.Status) {
+		return fmt.Errorf("invalid status: %s", update.Status)
 	}
 
 	// Log the operation
-	s.logger.Info(fmt.Sprintf("Retrieving filter options for data source %s", dataSource))
+	s.logger.Info(fmt.Sprintf("Updating status of item with ID %s to %s", id, update.Status))
 
 	// Call the repository
-	return s.repository.GetFilterOptions(ctx, dataSource)
+	return s.repository.UpdateStatus(ctx, id, update)
 }
 
-// GetDataSources returns a list of available data sources
-func (s *ReviewService) GetDataSources(ctx context.Context) ([]string, error) {
+// Delete deletes an item
+func (s *GenericService) Delete(ctx context.Context, id string) error {
 	// Log the operation
-	s.logger.Info("Retrieving available data sources")
+	s.logger.Info(fmt.Sprintf("Deleting item with ID %s", id))
 
 	// Call the repository
-	return s.repository.GetDataSources(ctx)
+	return s.repository.Delete(ctx, id)
 }
