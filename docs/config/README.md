@@ -3875,7 +3875,8 @@ The `pixi` module shows the installed [pixi](https://pixi.sh) version as well as
 | Variable    | Example   | Description                          |
 | ----------- | --------- | ------------------------------------ |
 | version     | `v0.33.0` | The version of `pixi`                |
-| environment | `py311`   | The current pixi environment         |
+| environment  | `py311`      | The current pixi environment          |
+| project_name | `my-project` | The current pixi project name         |
 | symbol      |           | Mirrors the value of option `symbol` |
 | style       |           | Mirrors the value of option `style`  |
 
