@@ -7,7 +7,7 @@ use crate::utils::get_command_string_output;
 /// Creates a module with the current Pixi environment
 ///
 /// Will display the Pixi environment and project name iff `$PIXI_ENVIRONMENT_NAME` or `$PIXI_PROJECT_NAME` is set.
-/// Will display the Pixi version iff pixi files are detected or `$PIXI_ENVIRONMENT_NAME` is set.
+/// Will display the Pixi version iff pixi files are detected, `$PIXI_ENVIRONMENT_NAME` is set, or `$PIXI_PROJECT_NAME` is set.
 pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("pixi");
     let config: PixiConfig = PixiConfig::try_load(module.config);
@@ -15,6 +15,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let pixi_environment_name = context.get_env("PIXI_ENVIRONMENT_NAME");
     let pixi_project_name = context.get_env("PIXI_PROJECT_NAME");
     let is_pixi_project = pixi_environment_name.is_some()
+        || pixi_project_name.is_some()
         || context
             .try_begin_scan()?
             .set_files(&config.detect_files)
