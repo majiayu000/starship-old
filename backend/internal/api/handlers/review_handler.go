@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -98,6 +99,12 @@ func (h *ReviewHandler) GetAll(c *gin.Context) {
 	// Call the service
 	result, err := h.service.GetAll(c.Request.Context(), params)
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidSortBy) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
 		h.logger.Error(fmt.Sprintf("Error retrieving items: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to retrieve items",

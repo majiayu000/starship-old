@@ -79,11 +79,10 @@ func (r *ReviewRepository) FindAll(ctx context.Context, params domain.QueryParam
 		return nil, fmt.Errorf("error counting total items: %w", err)
 	}
 
-	// Add ORDER BY and LIMIT clauses for pagination
-	orderBy := "original_id"
-	if params.SortBy != "" {
-		// Convert camelCase to snake_case
-		orderBy = convertToSnakeCase(params.SortBy)
+	// Resolve ORDER BY from an allowlist only — never interpolate raw SortBy.
+	orderBy, err := domain.ResolveSortColumn(params.DataSource, params.SortBy)
+	if err != nil {
+		return nil, err
 	}
 
 	sortOrder := "ASC"
@@ -410,16 +409,4 @@ func (r *ReviewRepository) scanMultipleSATIXLItems(rows *sql.Rows) ([]*domain.SA
 	// Implement this method based on the actual table structure
 	// This is just a placeholder
 	return []*domain.SATIXLItem{}, nil
-}
-
-// convertToSnakeCase converts a camelCase string to snake_case
-func convertToSnakeCase(input string) string {
-	var result strings.Builder
-	for i, r := range input {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result.WriteRune('_')
-		}
-		result.WriteRune(r)
-	}
-	return strings.ToLower(result.String())
 }
