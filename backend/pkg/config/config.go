@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -162,9 +163,13 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Override with environment variables
+	// Override with environment variables (APP_AUTH_JWT_SECRETKEY binds to auth.jwt.secretKey).
 	v.SetEnvPrefix("APP")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	if err := v.BindEnv("auth.jwt.secretKey", "APP_AUTH_JWT_SECRETKEY"); err != nil {
+		return nil, fmt.Errorf("failed to bind auth.jwt.secretKey env: %w", err)
+	}
 
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
@@ -245,16 +250,10 @@ func setDefaults(v *viper.Viper) {
 
 // validateConfig validates the configuration
 func validateConfig(config *Config) error {
-	// If auth is enabled, validate JWT config
+	// If auth is enabled, require a non-placeholder JWT secret (fail closed in all environments).
 	if config.Auth.Enabled {
-		// Validate required JWT secret key
-		if config.Auth.JWT.SecretKey == "" {
-			// For development, generate a random secret if not provided
-			if config.App.Environment == "development" {
-				config.Auth.JWT.SecretKey = "dev-secret-key"
-			} else {
-				return fmt.Errorf("jwt.secretKey is required when auth is enabled")
-			}
+		if err := validateJWTSecret(config.Auth.JWT.SecretKey); err != nil {
+			return err
 		}
 	}
 
@@ -298,4 +297,25 @@ func validateConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// validateJWTSecret rejects empty and known-insecure placeholder secrets when auth is enabled.
+func validateJWTSecret(secret string) error {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return fmt.Errorf("jwt.secretKey is required when auth is enabled; set APP_AUTH_JWT_SECRETKEY to a non-placeholder value")
+	}
+	if isPlaceholderJWTSecret(secret) {
+		return fmt.Errorf("jwt.secretKey must not be a placeholder value when auth is enabled; set APP_AUTH_JWT_SECRETKEY to a secure secret")
+	}
+	return nil
+}
+
+func isPlaceholderJWTSecret(secret string) bool {
+	switch strings.ToLower(strings.TrimSpace(secret)) {
+	case "your-secret-key-here", "dev-secret-key", "changeme", "secret", "password":
+		return true
+	default:
+		return false
+	}
 }

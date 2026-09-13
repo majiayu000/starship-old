@@ -30,8 +30,9 @@ func RegisterRoutes(
 	var authMiddleware gin.HandlerFunc
 	var adminRoleMiddleware gin.HandlerFunc
 
-	// Initialize handlers and middlewares only if services are available
-	if userService != nil && authService != nil {
+	// Initialize JWT auth handlers/middleware only when auth is enabled and services exist.
+	// When auth.enabled=false, do not register /auth or JWT middleware (avoids empty-key tokens).
+	if cfg.Auth.Enabled && userService != nil && authService != nil {
 		userHandler = handlers.NewUserHandler(userService, logger)
 		authHandler = handlers.NewAuthHandler(authService, logger)
 		authMiddleware = middleware.Auth(authService)
@@ -54,8 +55,8 @@ func RegisterRoutes(
 	// Group API routes
 	api := router.Group("/api/v1")
 	{
-		// Register auth routes if auth service is available
-		if authHandler != nil {
+		// Register auth routes only when auth is enabled
+		if cfg.Auth.Enabled && authHandler != nil {
 			auth := api.Group("/auth")
 			{
 				auth.POST("/register", authHandler.Register)
@@ -63,8 +64,8 @@ func RegisterRoutes(
 			}
 		}
 
-		// Register user routes if user service is available
-		if userHandler != nil {
+		// Register user routes only when auth is enabled (JWT-protected)
+		if cfg.Auth.Enabled && userHandler != nil {
 			users := api.Group("/users")
 			users.Use(authMiddleware)
 			{
@@ -79,7 +80,7 @@ func RegisterRoutes(
 		// Register cache routes if cache service is available
 		if cacheHandler != nil {
 			cache := api.Group("/cache")
-			if authService != nil {
+			if cfg.Auth.Enabled && authService != nil {
 				cache.Use(authMiddleware)
 				cache.Use(adminRoleMiddleware)
 			}
