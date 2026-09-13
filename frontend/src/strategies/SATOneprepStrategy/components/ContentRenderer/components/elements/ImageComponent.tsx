@@ -3,6 +3,7 @@
 import React from 'react';
 import BaseComponent from '../base/BaseComponent';
 import { ContentMetadata, ContentRendererOptions } from '../../types';
+import { sanitizeSvg } from '@/lib/sanitizeHtml';
 
 interface ImageContent {
   content: string;
@@ -38,7 +39,7 @@ const ImageComponent: React.FC<ImageComponentProps> = ({
       <BaseComponent metadata={metadata}>
         <div 
           className="svg-container" 
-          dangerouslySetInnerHTML={{ __html: imageContent }}
+          dangerouslySetInnerHTML={{ __html: sanitizeSvg(imageContent) }}
         />
       </BaseComponent>
     );
