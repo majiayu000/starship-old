@@ -122,6 +122,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		return "", errors.NewUnauthorized("Invalid email or password", nil)
 	}
 
+	if !user.Active {
+		return "", errors.NewUnauthorized("Account is inactive", nil)
+	}
+
 	// Generate JWT token
 	token, err := s.jwtService.GenerateToken(user.ID, user.Email, user.Role)
 	if err != nil {
@@ -143,6 +147,10 @@ func (s *AuthService) ValidateToken(ctx context.Context, token string) (*domain.
 	user, err := s.userRepo.FindByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, errors.NewUnauthorized("User not found", err)
+	}
+
+	if !user.Active {
+		return nil, errors.NewUnauthorized("Account is inactive", nil)
 	}
 
 	return user, nil

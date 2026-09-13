@@ -9,6 +9,7 @@ import (
 	"github.com/majiayu000/cc-starship/internal/infrastructure/auth"
 	"github.com/majiayu000/cc-starship/pkg/config"
 	"github.com/majiayu000/cc-starship/pkg/logger"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type memoryUserRepo struct {
@@ -206,5 +207,60 @@ func TestEnsureBootstrapAdminRejectsPartialCredentials(t *testing.T) {
 	}
 	if len(repo.users) != 0 {
 		t.Fatalf("expected no users for partial bootstrap config, got %d", len(repo.users))
+	}
+}
+
+func TestLoginRejectsInactiveUser(t *testing.T) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "inactive-1",
+			Email:     "inactive@example.com",
+			Password:  string(hashed),
+			Role:      "admin",
+			Active:    false,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	svc := newTestAuthService(repo)
+
+	_, err = svc.Login(context.Background(), "inactive@example.com", "password")
+	if err == nil {
+		t.Fatal("expected login to reject inactive user")
+	}
+}
+
+func TestValidateTokenRejectsInactiveUser(t *testing.T) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	now := time.Now()
+	user := &domain.User{
+		ID:        "user-1",
+		Email:     "user@example.com",
+		Password:  string(hashed),
+		Role:      "user",
+		Active:    true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repo := &memoryUserRepo{users: []*domain.User{user}}
+	svc := newTestAuthService(repo)
+
+	token, err := svc.Login(context.Background(), "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	repo.users[0].Active = false
+	_, err = svc.ValidateToken(context.Background(), token)
+	if err == nil {
+		t.Fatal("expected ValidateToken to reject inactive user")
 	}
 }

@@ -275,8 +275,9 @@ func setDefaults(v *viper.Viper) {
 
 // validateConfig validates the configuration
 func validateConfig(config *Config) error {
-	// If auth is enabled, validate JWT config
-	if config.Auth.Enabled {
+	// Require JWT only when both auth switches are on, matching main.go's
+	// authService construction (auth.enabled && features.enable_auth).
+	if config.Auth.Enabled && config.Features.EnableAuth {
 		// Validate required JWT secret key
 		if config.Auth.JWT.SecretKey == "" {
 			// For development, generate a random secret if not provided

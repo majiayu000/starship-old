@@ -205,16 +205,57 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	return true, nil
 }
 
-// Update updates an existing user
+// Update updates an existing user. Admin demotions are checked atomically under
+// row locks so concurrent sole-admin demotions cannot both succeed.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
-	query := `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin user update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentRole string
+	err = tx.QueryRowContext(ctx, `
+		SELECT role FROM users WHERE id = $1 FOR UPDATE
+	`, user.ID).Scan(&currentRole)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("failed to lock user for update: %w", err)
+	}
+
+	if currentRole == "admin" && user.Role != "admin" {
+		// Lock every admin row so concurrent demotions serialize on the same set.
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM users WHERE role = 'admin' FOR UPDATE`)
+		if err != nil {
+			return fmt.Errorf("failed to lock admin users: %w", err)
+		}
+		adminCount := 0
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to scan admin id: %w", err)
+			}
+			adminCount++
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return fmt.Errorf("error iterating admin users: %w", err)
+		}
+		rows.Close()
+		if adminCount <= 1 {
+			return domain.ErrCannotDemoteLastAdmin
+		}
+	}
+
+	now := time.Now()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET email = $1, first_name = $2, last_name = $3, role = $4, active = $5, updated_at = $6
 		WHERE id = $7
-	`
-
-	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query,
+	`,
 		user.Email,
 		user.FirstName,
 		user.LastName,
@@ -223,7 +264,6 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		now,
 		user.ID,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -232,14 +272,15 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-
 	if rowsAffected == 0 {
 		return fmt.Errorf("user not found")
 	}
 
-	// Update the updated_at field
-	user.UpdatedAt = now
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit user update: %w", err)
+	}
 
+	user.UpdatedAt = now
 	return nil
 }
 

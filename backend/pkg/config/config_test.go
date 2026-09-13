@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func TestValidateConfigSkipsJWTWhenFeaturesEnableAuthFalse(t *testing.T) {
+	cfg := &Config{}
+	cfg.App.Environment = "production"
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWT.SecretKey = ""
+	cfg.Features.EnableAuth = false
+
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("validateConfig should allow missing JWT when features.enable_auth is false: %v", err)
+	}
+}
+
+func TestValidateConfigRequiresJWTWhenBothAuthSwitchesEnabled(t *testing.T) {
+	cfg := &Config{}
+	cfg.App.Environment = "production"
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWT.SecretKey = ""
+	cfg.Features.EnableAuth = true
+
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected validateConfig to require jwt.secretKey when both auth switches are enabled")
+	}
+}
+
 func TestLoadBootstrapAdminFromPrefixedEnv(t *testing.T) {
 	t.Setenv("APP_AUTH_BOOTSTRAPADMIN_EMAIL", "bootstrap@example.com")
 	t.Setenv("APP_AUTH_BOOTSTRAPADMIN_PASSWORD", "bootstrap-secret")

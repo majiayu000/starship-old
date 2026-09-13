@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
+	"github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 )
 
@@ -50,6 +51,22 @@ func (m *mockUserService) CreateUser(context.Context, *domain.User) error {
 }
 
 func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error {
+	existing, ok := m.users[user.ID]
+	if !ok {
+		return errNotFound
+	}
+	// Mirror repository last-admin invariant for handler unit tests.
+	if existing.Role == "admin" && user.Role != "admin" {
+		adminCount := 0
+		for _, u := range m.users {
+			if u != nil && u.Role == "admin" {
+				adminCount++
+			}
+		}
+		if adminCount <= 1 {
+			return errors.NewForbidden("Cannot demote the sole administrator", domain.ErrCannotDemoteLastAdmin)
+		}
+	}
 	m.updated = user
 	m.users[user.ID] = user
 	return nil
