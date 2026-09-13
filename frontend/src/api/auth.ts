@@ -4,6 +4,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/a
 
 export const AUTH_TOKEN_KEY = 'auth_token';
 export const AUTH_USERNAME_KEY = 'username';
+export const AUTH_ROLE_KEY = 'auth_role';
+export const AUTH_CHANGE_EVENT = 'auth-session-changed';
 
 export type AuthUser = {
   id: string;
@@ -28,6 +30,13 @@ function unwrapAuthPayload(data: unknown): AuthResponse {
   return data as AuthResponse;
 }
 
+function notifyAuthChange(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
+}
+
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') {
     return null;
@@ -42,16 +51,31 @@ export function getAuthUsername(): string | null {
   return localStorage.getItem(AUTH_USERNAME_KEY);
 }
 
+export function getAuthRole(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return localStorage.getItem(AUTH_ROLE_KEY);
+}
+
+export function isAdmin(): boolean {
+  return getAuthRole() === 'admin';
+}
+
 export function setAuthSession(token: string, user: AuthUser): void {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   const displayName =
     [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
   localStorage.setItem(AUTH_USERNAME_KEY, displayName);
+  localStorage.setItem(AUTH_ROLE_KEY, user.role || 'user');
+  notifyAuthChange();
 }
 
 export function clearAuthSession(): void {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USERNAME_KEY);
+  localStorage.removeItem(AUTH_ROLE_KEY);
+  notifyAuthChange();
 }
 
 /** Headers for authenticated API calls. Omits Authorization when no token is stored. */

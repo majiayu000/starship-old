@@ -44,6 +44,23 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 	// Create new user
 	user := domain.NewUser(email, string(hashedPassword), firstName, lastName)
 
+	// Bootstrap: when no admin exists yet, promote this registrant so review
+	// writes are reachable without manual DB edits after a clean deploy.
+	existingUsers, err := s.userRepo.FindAll(ctx)
+	if err != nil {
+		return nil, errors.NewInternal("Failed to check existing users for admin bootstrap", err)
+	}
+	hasAdmin := false
+	for _, existing := range existingUsers {
+		if existing.Role == "admin" {
+			hasAdmin = true
+			break
+		}
+	}
+	if !hasAdmin {
+		user.Role = "admin"
+	}
+
 	// Save user to repository
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, errors.NewInternal("Failed to create user", err)

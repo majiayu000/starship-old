@@ -1,39 +1,25 @@
 'use client';
 
-import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-  getAuthToken,
-  getAuthUsername,
-  login,
-  logout,
-} from '@/api/auth';
+import { login, logout } from '@/api/auth';
+import { useAuthSession } from '@/hooks/useAuthSession';
 
 const NavigationHeader: React.FC = () => {
   const pathname = usePathname();
+  const { username, isAuthenticated, isAdmin } = useAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState<string | null>(null);
-  const [hasToken, setHasToken] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    setUsername(getAuthUsername());
-    setHasToken(Boolean(getAuthToken()));
-  }, []);
 
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      const user = await login(email, password);
-      const displayName =
-        [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
-      setUsername(displayName);
-      setHasToken(true);
+      await login(email, password);
       setPassword('');
       toast.success('登录成功');
     } catch (error) {
@@ -46,8 +32,6 @@ const NavigationHeader: React.FC = () => {
 
   const handleLogout = () => {
     logout();
-    setUsername(null);
-    setHasToken(false);
     toast.success('已退出登录');
   };
 
@@ -77,9 +61,12 @@ const NavigationHeader: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3 text-sm text-gray-500">
-          {hasToken ? (
+          {isAuthenticated ? (
             <>
-              <span>{username || '已登录'}</span>
+              <span>
+                {username || '已登录'}
+                {isAdmin ? ' · 管理员' : ' · 只读'}
+              </span>
               <Button variant="outline" size="sm" onClick={handleLogout}>
                 退出
               </Button>

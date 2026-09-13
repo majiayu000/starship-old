@@ -7,16 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import DataSourceSelector from '@/components/common/DataSourceSelector';
-import ReviewForm from '@/components/common/ReviewForm';
 import { StrategyFactory } from '@/strategies/factory';
 import { reviewApi } from '@/api/review';
 import { DataSourceItemType } from '@/api/types';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuthSession } from '@/hooks/useAuthSession';
 
 export default function QuestionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { authEpoch, isAuthenticated } = useAuthSession();
   const [dataSource, setDataSource] = useState<keyof DataSourceItemType>('sat_oneprep');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -42,8 +43,21 @@ export default function QuestionsPage() {
   
   // 获取数据源
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAvailableSources([]);
+      setItems([]);
+      setTotalItems(0);
+      setTotalPages(1);
+      setFilterOptions({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const fetchDataSources = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const sources = await reviewApi.getDataSources();
         setAvailableSources(sources);
         
@@ -69,11 +83,11 @@ export default function QuestionsPage() {
     };
     
     fetchDataSources();
-  }, [searchParams]);
+  }, [searchParams, authEpoch, isAuthenticated]);
 
   // 数据源变化时获取筛选选项
   useEffect(() => {
-    if (!dataSource) return;
+    if (!isAuthenticated || !dataSource) return;
     
     const fetchFilterOptions = async () => {
       try {
@@ -92,14 +106,14 @@ export default function QuestionsPage() {
     
     // 获取题目列表
     fetchItems();
-  }, [dataSource]);
+  }, [dataSource, authEpoch, isAuthenticated]);
 
   // 页码或筛选条件变化时获取题目列表
   useEffect(() => {
-    if (!dataSource) return;
+    if (!isAuthenticated || !dataSource) return;
     fetchItems();
     updateUrl();
-  }, [page, filters, dataSource]);
+  }, [page, filters, dataSource, authEpoch, isAuthenticated]);
 
   // 更新URL
   const updateUrl = () => {

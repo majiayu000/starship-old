@@ -13,10 +13,12 @@ import ReviewForm from '@/components/common/ReviewForm';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/common/DataTable';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useAuthSession } from '@/hooks/useAuthSession';
 
 export default function ReviewPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { authEpoch, isAuthenticated } = useAuthSession();
   const [dataSource, setDataSource] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -34,9 +36,23 @@ export default function ReviewPage() {
   const [updatingItem, setUpdatingItem] = useState<boolean>(false);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAvailableSources([]);
+      setDataSource('');
+      setItems({ items: [], total: 0, page: 1, pageSize: 10 });
+      setSelectedItem(null);
+      setFilterOptions({});
+      setFilters({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     // 获取可用的数据源
     const fetchDataSources = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const sources = await reviewApi.getDataSources();
         setAvailableSources(sources);
         
@@ -56,10 +72,10 @@ export default function ReviewPage() {
     };
     
     fetchDataSources();
-  }, [searchParams]);
+  }, [searchParams, authEpoch, isAuthenticated]);
 
   useEffect(() => {
-    if (!dataSource) return;
+    if (!isAuthenticated || !dataSource) return;
     
     const fetchFilterOptions = async () => {
       try {
@@ -86,7 +102,7 @@ export default function ReviewPage() {
       page: 1,
       pageSize: 10,
     });
-  }, [dataSource, router, searchParams]);
+  }, [dataSource, router, searchParams, authEpoch, isAuthenticated]);
 
   const fetchItems = async (params: any) => {
     if (!dataSource) return;
