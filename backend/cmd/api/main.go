@@ -73,9 +73,6 @@ func main() {
 
 	// Initialize user and auth services only if PostgreSQL is available
 	if dbManager.PostgreSQL != nil {
-		// Create JWT service
-		jwtService := auth.NewJWTService(cfg)
-
 		// Create repositories
 		userRepo := postgres.NewUserRepository(dbManager.PostgreSQL, l)
 
@@ -87,22 +84,43 @@ func main() {
 
 		// Create services
 		userService = services.NewUserService(userRepo, l)
-		authSvc := services.NewAuthService(userRepo, jwtService, l)
-		if err := authSvc.EnsureBootstrapAdmin(context.Background(), cfg.Auth.BootstrapAdmin); err != nil {
-			l.Fatal("Failed to ensure bootstrap admin: " + err.Error())
-		}
-		authService = authSvc
 
-		l.LogBusiness(
-			logger.LogLevelInfo,
-			"system_init",
-			"system",
-			"auth",
-			map[string]interface{}{
-				"service": "PostgreSQL",
-				"status":  "initialized",
-			},
-		)
+		// Honor auth.enabled and features.enable_auth so deployments can run
+		// PostgreSQL-backed review without forcing Bearer auth on every route.
+		authEnabled := cfg.Auth.Enabled && cfg.Features.EnableAuth
+		if authEnabled {
+			jwtService := auth.NewJWTService(cfg)
+			authSvc := services.NewAuthService(userRepo, jwtService, l)
+			if err := authSvc.EnsureBootstrapAdmin(context.Background(), cfg.Auth.BootstrapAdmin); err != nil {
+				l.Fatal("Failed to ensure bootstrap admin: " + err.Error())
+			}
+			authService = authSvc
+
+			l.LogBusiness(
+				logger.LogLevelInfo,
+				"system_init",
+				"system",
+				"auth",
+				map[string]interface{}{
+					"service": "PostgreSQL",
+					"status":  "initialized",
+				},
+			)
+		} else {
+			l.Info("Authentication disabled by configuration (auth.enabled / features.enable_auth)")
+
+			l.LogBusiness(
+				logger.LogLevelInfo,
+				"system_init",
+				"system",
+				"auth",
+				map[string]interface{}{
+					"service": "PostgreSQL",
+					"status":  "disabled",
+					"reason":  "auth.enabled or features.enable_auth is false",
+				},
+			)
+		}
 	} else {
 		l.Warn("PostgreSQL is not initialized. User authentication features will be disabled.")
 

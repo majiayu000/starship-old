@@ -129,10 +129,14 @@ export default function ReviewPage() {
   }, [dataSource, router, searchParams, authEpoch, isAuthenticated]);
 
   // Ignore async results from a prior auth epoch after logout/login.
+  // Always compare against authGenerationRef so filter/page/review callers
+  // that omit an explicit cancelled callback still discard stale responses.
   const fetchItems = async (params: FetchItemsParams = {}) => {
     if (!dataSource) return;
     const { cancelled, ...query } = params;
-    const isStale = () => Boolean(cancelled?.());
+    const generation = authGenerationRef.current;
+    const isStale = () =>
+      Boolean(cancelled?.()) || generation !== authGenerationRef.current;
 
     setLoading(true);
     try {

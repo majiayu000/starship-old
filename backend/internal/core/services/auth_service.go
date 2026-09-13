@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"net/mail"
 	"strings"
 
 	"github.com/majiayu000/cc-starship/internal/core/domain"
@@ -63,6 +64,12 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.Boots
 	password := cfg.Password
 	if email == "" || password == "" {
 		return nil
+	}
+
+	// Reject addresses LoginRequest would refuse (binding:"email") so a bad
+	// bootstrap config cannot insert an unusable sole admin and block retries.
+	if _, err := mail.ParseAddress(email); err != nil {
+		return errors.NewBadRequest("Invalid bootstrap admin email address", err)
 	}
 
 	firstName := strings.TrimSpace(cfg.FirstName)

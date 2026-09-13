@@ -78,6 +78,19 @@ export function clearAuthSession(): void {
   notifyAuthChange();
 }
 
+/**
+ * Clear the session only when the stored token is still the one that failed.
+ * Prevents an in-flight 401 for token A from wiping a newer session for token B.
+ */
+export function clearAuthSessionIfCurrent(requestToken: string | null | undefined): void {
+  if (!requestToken) {
+    return;
+  }
+  if (getAuthToken() === requestToken) {
+    clearAuthSession();
+  }
+}
+
 /** Headers for authenticated API calls. Omits Authorization when no token is stored. */
 export function authHeaders(): Record<string, string> {
   const token = getAuthToken();

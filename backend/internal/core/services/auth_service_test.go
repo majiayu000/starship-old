@@ -154,3 +154,19 @@ func TestEnsureBootstrapAdminNoopWithoutCredentials(t *testing.T) {
 		t.Fatalf("expected no users when bootstrap credentials empty, got %d", len(repo.users))
 	}
 }
+
+func TestEnsureBootstrapAdminRejectsInvalidEmail(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "not-an-email",
+		Password: "password",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid bootstrap email")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users inserted for invalid email, got %d", len(repo.users))
+	}
+}

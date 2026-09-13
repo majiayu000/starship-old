@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ export default function QuestionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { authEpoch, isAuthenticated } = useAuthSession();
+  const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<keyof DataSourceItemType>('sat_oneprep');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -32,6 +33,10 @@ export default function QuestionsPage() {
   const [filters, setFilters] = useState<any>({ status: 'pending' });
   // 为元数据折叠状态创建一个映射，以originalId为键
   const [metadataOpenMap, setMetadataOpenMap] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    authGenerationRef.current += 1;
+  }, [authEpoch, isAuthenticated]);
   
   // 处理元数据折叠/展开
   const toggleMetadata = (originalId: string) => {
@@ -143,7 +148,9 @@ export default function QuestionsPage() {
   
   // 获取题目列表 — ignore results from a prior auth epoch after logout/cleanup
   const fetchItems = async (opts?: { cancelled?: () => boolean }) => {
-    const isStale = () => Boolean(opts?.cancelled?.());
+    const generation = authGenerationRef.current;
+    const isStale = () =>
+      Boolean(opts?.cancelled?.()) || generation !== authGenerationRef.current;
     setLoading(true);
     try {
       const strategy = StrategyFactory.getStrategy(dataSource as string);
@@ -186,10 +193,12 @@ export default function QuestionsPage() {
     setPage(newPage);
   };
 
-  // 处理审核提交
+  // 处理审核提交 — discard results/callbacks after logout or auth epoch change
   const handleReviewSubmit = async (itemId: string, statusUpdate: { status: string; comment: string }) => {
+    const generation = authGenerationRef.current;
     try {
       await reviewApi.reviewItem(dataSource, itemId, statusUpdate);
+      if (generation !== authGenerationRef.current) return;
       
       // 更新列表中的项目状态
       const updatedItems = items.map(item => 
@@ -206,15 +215,23 @@ export default function QuestionsPage() {
 
       // 在filters.status是pending时，可能需要从列表中移除此项，所以延迟一点时间再刷新
       if (filters.status === 'pending') {
-        setTimeout(() => fetchItems(), 1000);
+        setTimeout(() => {
+          if (generation !== authGenerationRef.current) return;
+          fetchItems();
+        }, 1000);
       }
     } catch (err) {
+      if (generation !== authGenerationRef.current) return;
       console.error('提交审核失败:', err);
       toast.error('提交审核结果失败');
     }
   };
 
   const handleItemUpdated = (updatedItem: any) => {
+    if (!isAuthenticated) {
+      return;
+    }
+    const generation = authGenerationRef.current;
     // 更新列表中的项目状态
     const updatedItems = items.map(item => 
       item.originalId === updatedItem.originalId
@@ -227,6 +244,7 @@ export default function QuestionsPage() {
     if (updatedItem.reviewStatus !== 'pending' && filters.status === 'pending') {
       // 使用短暂延迟以确保UI有时间更新
       setTimeout(() => {
+        if (generation !== authGenerationRef.current) return;
         fetchItems();
       }, 500);
     }
@@ -234,12 +252,18 @@ export default function QuestionsPage() {
 
   const strategy = dataSource ? StrategyFactory.getStrategy(dataSource as string) : null;
   
-  // 设置策略的回调函数
+  // 设置策略的回调函数; clear on logout so retained strategy callbacks cannot repopulate
   useEffect(() => {
-    if (strategy) {
-      strategy.setItemUpdateCallback(handleItemUpdated);
+    if (!strategy) return;
+    if (!isAuthenticated) {
+      strategy.setItemUpdateCallback(() => {});
+      return;
     }
-  }, [strategy]);
+    strategy.setItemUpdateCallback(handleItemUpdated);
+    return () => {
+      strategy.setItemUpdateCallback(() => {});
+    };
+  }, [strategy, authEpoch, isAuthenticated, items, filters.status]);
 
   // 初始加载显示骨架屏
   if (loading && items.length === 0) {

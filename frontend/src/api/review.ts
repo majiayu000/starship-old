@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { PaginatedResult, QueryParams, ReviewStatusUpdate } from '../models/reviewable-item';
-import { authHeaders, clearAuthSession } from './auth';
+import { authHeaders, clearAuthSessionIfCurrent, getAuthToken } from './auth';
 import { DataSourceItemType, FilterOptions } from './types';
 
 // 从环境变量读取API地址，如果未设置则使用默认值（开发环境中指向8080端口）
@@ -10,17 +10,23 @@ function isUnauthorized(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 401;
 }
 
+function authHeadersForRequest(): { headers: Record<string, string>; token: string | null } {
+  const token = getAuthToken();
+  return { headers: authHeaders(), token };
+}
+
 export const reviewApi = {
   // 获取所有数据源
   getDataSources: async (): Promise<string[]> => {
+    const { headers, token } = authHeadersForRequest();
     try {
       const response = await axios.get(`${API_BASE_URL}/review/sources`, {
-        headers: authHeaders(),
+        headers,
       });
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
-        clearAuthSession();
+        clearAuthSessionIfCurrent(token);
         throw new Error('Authentication required to load review sources');
       }
       console.error('获取数据源失败:', error);
@@ -31,14 +37,15 @@ export const reviewApi = {
 
   // 获取过滤选项
   getFilterOptions: async (dataSource: string): Promise<FilterOptions> => {
+    const { headers, token } = authHeadersForRequest();
     try {
       const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/filters`, {
-        headers: authHeaders(),
+        headers,
       });
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
-        clearAuthSession();
+        clearAuthSessionIfCurrent(token);
         throw new Error('Authentication required to load filter options');
       }
       console.error('获取过滤选项失败:', error);
@@ -56,15 +63,16 @@ export const reviewApi = {
     dataSource: T, 
     params: QueryParams
   ): Promise<PaginatedResult<DataSourceItemType[T]>> => {
+    const { headers, token } = authHeadersForRequest();
     try {
       const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items`, {
         params,
-        headers: authHeaders(),
+        headers,
       });
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
-        clearAuthSession();
+        clearAuthSessionIfCurrent(token);
         throw new Error('Authentication required to load review items');
       }
       console.error('获取项目列表失败:', error);
@@ -85,15 +93,16 @@ export const reviewApi = {
     dataSource: T, 
     id: string
   ): Promise<DataSourceItemType[T]> => {
+    const { headers, token } = authHeadersForRequest();
     try {
       const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items/${id}`, {
-        headers: authHeaders(),
+        headers,
       });
       return response.data;
     } catch (error) {
       console.error('获取项目详情失败:', error);
       if (isUnauthorized(error)) {
-        clearAuthSession();
+        clearAuthSessionIfCurrent(token);
         throw new Error('Authentication required to load review item');
       }
       throw new Error('获取项目详情失败');
@@ -106,6 +115,7 @@ export const reviewApi = {
     id: string, 
     update: ReviewStatusUpdate
   ): Promise<void> => {
+    const { headers, token } = authHeadersForRequest();
     try {
       // 只发送状态字段
       const formattedUpdate = {
@@ -123,7 +133,7 @@ export const reviewApi = {
         {
           headers: {
             'Content-Type': 'application/json',
-            ...authHeaders(),
+            ...headers,
           }
         }
       );
@@ -134,7 +144,7 @@ export const reviewApi = {
         console.error('响应状态:', error.response.status);
       }
       if (isUnauthorized(error)) {
-        clearAuthSession();
+        clearAuthSessionIfCurrent(token);
         throw new Error('Authentication required to submit a review');
       }
       throw new Error(error.response?.data?.error || '提交审核失败');
