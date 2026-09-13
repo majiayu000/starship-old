@@ -10,7 +10,7 @@ import { useAuthSession } from '@/hooks/useAuthSession';
 
 const NavigationHeader: React.FC = () => {
   const pathname = usePathname();
-  const { username, isAuthenticated, isAdmin } = useAuthSession();
+  const { username, isAuthenticated, isAdmin, authRequired, authStatusLoaded } = useAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,7 +61,9 @@ const NavigationHeader: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3 text-sm text-gray-500">
-          {isAuthenticated ? (
+          {authStatusLoaded && !authRequired ? (
+            <span>认证已关闭</span>
+          ) : isAuthenticated ? (
             <>
               <span>
                 {username || '已登录'}

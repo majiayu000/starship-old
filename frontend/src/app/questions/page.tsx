@@ -17,7 +17,7 @@ import { useAuthSession } from '@/hooks/useAuthSession';
 export default function QuestionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { authEpoch, isAuthenticated } = useAuthSession();
+  const { authEpoch, isAuthenticated, canAccessReview } = useAuthSession();
   const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<keyof DataSourceItemType>('sat_oneprep');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
@@ -36,7 +36,7 @@ export default function QuestionsPage() {
 
   useEffect(() => {
     authGenerationRef.current += 1;
-  }, [authEpoch, isAuthenticated]);
+  }, [authEpoch, isAuthenticated, canAccessReview]);
   
   // 处理元数据折叠/展开
   const toggleMetadata = (originalId: string) => {
@@ -48,7 +48,7 @@ export default function QuestionsPage() {
   
   // 获取数据源
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!canAccessReview) {
       setAvailableSources([]);
       setItems([]);
       setTotalItems(0);
@@ -96,11 +96,11 @@ export default function QuestionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, authEpoch, isAuthenticated]);
+  }, [searchParams, authEpoch, isAuthenticated, canAccessReview]);
 
   // 数据源变化时获取筛选选项
   useEffect(() => {
-    if (!isAuthenticated || !dataSource) return;
+    if (!canAccessReview || !dataSource) return;
 
     let cancelled = false;
     const fetchFilterOptions = async () => {
@@ -125,18 +125,18 @@ export default function QuestionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [dataSource, authEpoch, isAuthenticated]);
+  }, [dataSource, authEpoch, isAuthenticated, canAccessReview]);
 
   // 页码或筛选条件变化时获取题目列表
   useEffect(() => {
-    if (!isAuthenticated || !dataSource) return;
+    if (!canAccessReview || !dataSource) return;
     let cancelled = false;
     fetchItems({ cancelled: () => cancelled });
     updateUrl();
     return () => {
       cancelled = true;
     };
-  }, [page, filters, dataSource, authEpoch, isAuthenticated]);
+  }, [page, filters, dataSource, authEpoch, isAuthenticated, canAccessReview]);
 
   // 更新URL
   const updateUrl = () => {
@@ -228,7 +228,7 @@ export default function QuestionsPage() {
   };
 
   const handleItemUpdated = (updatedItem: any) => {
-    if (!isAuthenticated) {
+    if (!canAccessReview) {
       return;
     }
     const generation = authGenerationRef.current;
@@ -257,7 +257,7 @@ export default function QuestionsPage() {
     if (!strategy || typeof (strategy as any).setItemUpdateCallback !== 'function') {
       return;
     }
-    if (!isAuthenticated) {
+    if (!canAccessReview) {
       (strategy as any).setItemUpdateCallback(() => {});
       return;
     }
@@ -269,7 +269,7 @@ export default function QuestionsPage() {
     return () => {
       (strategy as any).setItemUpdateCallback(() => {});
     };
-  }, [strategy, authEpoch, isAuthenticated, items, filters.status]);
+  }, [strategy, authEpoch, isAuthenticated, canAccessReview, items, filters.status]);
 
   // 初始加载显示骨架屏
   if (loading && items.length === 0) {

@@ -116,3 +116,24 @@ export async function login(email: string, password: string): Promise<AuthUser> 
 export function logout(): void {
   clearAuthSession();
 }
+
+/** Whether the backend currently requires Bearer auth for review APIs. */
+export async function fetchAuthEnabled(): Promise<boolean> {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/auth/status`);
+    const payload = response.data;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      const nested = (payload as { data?: { enabled?: boolean } }).data;
+      if (nested && typeof nested.enabled === 'boolean') {
+        return nested.enabled;
+      }
+    }
+    if (payload && typeof payload === 'object' && 'enabled' in payload) {
+      return Boolean((payload as { enabled?: boolean }).enabled);
+    }
+  } catch (error) {
+    console.error('Failed to fetch auth status:', error);
+  }
+  // Fail closed: assume auth is required if the probe fails.
+  return true;
+}

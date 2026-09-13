@@ -58,6 +58,9 @@ func RegisterRoutes(
 	// Group API routes
 	api := router.Group("/api/v1")
 	{
+		// Public auth-enabled probe for frontend (works even when authService is nil).
+		api.GET("/auth/status", handlers.AuthStatus(authService != nil))
+
 		// Register auth routes if auth service is available
 		if authHandler != nil {
 			auth := api.Group("/auth")

@@ -132,7 +132,26 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
 	if isAdmin {
-		if req.Role != "" {
+		if req.Role != "" && req.Role != user.Role {
+			// Refuse demoting the last remaining administrator; otherwise no
+			// caller can grant admin again through the API.
+			if user.Role == "admin" && req.Role != "admin" {
+				users, listErr := h.userService.GetUsers(c)
+				if listErr != nil {
+					utils.ErrorResponse(c, listErr)
+					return
+				}
+				adminCount := 0
+				for _, existing := range users {
+					if existing != nil && existing.Role == "admin" {
+						adminCount++
+					}
+				}
+				if adminCount <= 1 {
+					utils.ErrorResponse(c, errors.NewForbidden("Cannot demote the sole administrator", nil))
+					return
+				}
+			}
 			user.Role = req.Role
 		}
 		user.Active = req.Active

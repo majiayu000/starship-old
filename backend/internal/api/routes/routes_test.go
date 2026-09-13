@@ -147,3 +147,43 @@ func TestUnauthenticatedReviewWriteReturns401WithoutUserService(t *testing.T) {
 		t.Fatal("expected ReviewItem handler/service not to be invoked without auth")
 	}
 }
+
+func TestAuthStatusReportsEnabledWhenAuthServicePresent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := &config.Config{}
+	log := logger.New(config.LoggerConfig{Level: "error", Format: "text"})
+
+	RegisterRoutes(router, nil, &stubAuthService{}, nil, nil, cfg, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"enabled":true`) {
+		t.Fatalf("expected enabled true, body=%s", rec.Body.String())
+	}
+}
+
+func TestAuthStatusReportsDisabledWhenAuthServiceNil(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := &config.Config{}
+	log := logger.New(config.LoggerConfig{Level: "error", Format: "text"})
+
+	RegisterRoutes(router, nil, nil, nil, &stubReviewService{}, cfg, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"enabled":false`) {
+		t.Fatalf("expected enabled false, body=%s", rec.Body.String())
+	}
+}

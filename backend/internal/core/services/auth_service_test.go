@@ -170,3 +170,41 @@ func TestEnsureBootstrapAdminRejectsInvalidEmail(t *testing.T) {
 		t.Fatalf("expected no users inserted for invalid email, got %d", len(repo.users))
 	}
 }
+
+func TestEnsureBootstrapAdminRejectsDisplayNameEmail(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "Admin <admin@example.com>",
+		Password: "password",
+	})
+	if err == nil {
+		t.Fatal("expected error for display-name bootstrap email")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users inserted for display-name email, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminRejectsPartialCredentials(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email: "admin@example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error when bootstrap password is missing")
+	}
+
+	err = svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Password: "password",
+	})
+	if err == nil {
+		t.Fatal("expected error when bootstrap email is missing")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users for partial bootstrap config, got %d", len(repo.users))
+	}
+}

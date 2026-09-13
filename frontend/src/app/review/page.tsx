@@ -23,7 +23,7 @@ type FetchItemsParams = {
 export default function ReviewPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { authEpoch, isAuthenticated } = useAuthSession();
+  const { authEpoch, isAuthenticated, canAccessReview } = useAuthSession();
   const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
@@ -43,10 +43,10 @@ export default function ReviewPage() {
 
   useEffect(() => {
     authGenerationRef.current += 1;
-  }, [authEpoch, isAuthenticated]);
+  }, [authEpoch, isAuthenticated, canAccessReview]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!canAccessReview) {
       setAvailableSources([]);
       setDataSource('');
       setItems({ items: [], total: 0, page: 1, pageSize: 10 });
@@ -88,10 +88,10 @@ export default function ReviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, authEpoch, isAuthenticated]);
+  }, [searchParams, authEpoch, isAuthenticated, canAccessReview]);
 
   useEffect(() => {
-    if (!isAuthenticated || !dataSource) return;
+    if (!canAccessReview || !dataSource) return;
 
     let cancelled = false;
     const fetchFilterOptions = async () => {
@@ -126,7 +126,7 @@ export default function ReviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [dataSource, router, searchParams, authEpoch, isAuthenticated]);
+  }, [dataSource, router, searchParams, authEpoch, isAuthenticated, canAccessReview]);
 
   // Ignore async results from a prior auth epoch after logout/login.
   // Always compare against authGenerationRef so filter/page/review callers

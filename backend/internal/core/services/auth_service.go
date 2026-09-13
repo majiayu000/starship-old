@@ -62,15 +62,25 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.BootstrapAdminConfig) error {
 	email := strings.TrimSpace(cfg.Email)
 	password := cfg.Password
-	if email == "" || password == "" {
+	emailEmpty := email == ""
+	passwordEmpty := password == ""
+	// Only skip when both credentials are absent. A partial config is a startup
+	// error so clean deployments cannot silently start without an admin.
+	if emailEmpty && passwordEmpty {
 		return nil
 	}
+	if emailEmpty || passwordEmpty {
+		return errors.NewBadRequest("Bootstrap admin requires both email and password", nil)
+	}
 
-	// Reject addresses LoginRequest would refuse (binding:"email") so a bad
-	// bootstrap config cannot insert an unusable sole admin and block retries.
-	if _, err := mail.ParseAddress(email); err != nil {
+	// Require a plain login email matching LoginRequest binding:"email".
+	// mail.ParseAddress accepts display-name forms like `Admin <a@b.com>` which
+	// cannot be typed into the HTML email input or pass gin email validation.
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Name != "" || !strings.EqualFold(parsed.Address, email) {
 		return errors.NewBadRequest("Invalid bootstrap admin email address", err)
 	}
+	email = parsed.Address
 
 	firstName := strings.TrimSpace(cfg.FirstName)
 	if firstName == "" {

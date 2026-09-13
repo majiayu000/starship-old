@@ -13,17 +13,17 @@ interface ReviewFormProps {
 }
 
 const ReviewForm: React.FC<ReviewFormProps> = ({ item, onSubmit }) => {
-  const { isAuthenticated, isAdmin } = useAuthSession();
+  const { isAuthenticated, isAdmin, authRequired, canSubmitReview } = useAuthSession();
   const [status, setStatus] = useState<string>(item.reviewStatus || 'pending');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  if (!isAuthenticated) {
+  if (authRequired && !isAuthenticated) {
     return (
       <p className="text-sm text-gray-500">请先登录后再提交审核。</p>
     );
   }
 
-  if (!isAdmin) {
+  if (!canSubmitReview) {
     return (
       <p className="text-sm text-gray-500">
         当前账号为只读用户，无法提交审核。请使用管理员账号登录。
