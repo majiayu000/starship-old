@@ -56,6 +56,8 @@ type AuthStatusResponse struct {
 // AuthStatus returns whether auth middleware is active for protected APIs.
 // Always public so the frontend can load review data when auth is disabled.
 // Optional Authorization: Bearer refreshes the caller's current role from the DB.
+// Invalid/expired sessions omit role (HTTP 200) so clients can clear stale tokens.
+// Infrastructure failures during validation return 5xx so clients keep the session.
 func AuthStatus(enabled bool, authService ports.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resp := AuthStatusResponse{Enabled: enabled}
@@ -63,7 +65,18 @@ func AuthStatus(enabled bool, authService ports.AuthService) gin.HandlerFunc {
 			authHeader := c.GetHeader("Authorization")
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != "" {
-				if user, err := authService.ValidateToken(c, parts[1]); err == nil && user != nil {
+				user, err := authService.ValidateToken(c, parts[1])
+				if err != nil {
+					if appErr, ok := errors.IsAppError(err); ok && appErr.Code == http.StatusUnauthorized {
+						// Invalid session: omit role so clients clear the token.
+						utils.JSONResponse(c, http.StatusOK, resp)
+						return
+					}
+					// DB/outage errors must not look like an expired session.
+					utils.ErrorResponse(c, err)
+					return
+				}
+				if user != nil {
 					resp.Role = user.Role
 				}
 			}

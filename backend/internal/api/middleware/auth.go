@@ -32,10 +32,14 @@ func Auth(authService ports.AuthService) gin.HandlerFunc {
 		// Extract the token
 		token := parts[1]
 
-		// Validate token
+		// Validate token. Preserve infrastructure 5xx vs unauthorized 401.
 		user, err := authService.ValidateToken(c, token)
 		if err != nil {
-			utils.ErrorResponse(c, errors.NewUnauthorized("Invalid or expired token", err))
+			if appErr, ok := errors.IsAppError(err); ok {
+				utils.ErrorResponse(c, appErr)
+			} else {
+				utils.ErrorResponse(c, errors.NewUnauthorized("Invalid or expired token", err))
+			}
 			c.Abort()
 			return
 		}

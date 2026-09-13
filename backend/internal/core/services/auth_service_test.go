@@ -2,28 +2,36 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/infrastructure/auth"
 	"github.com/majiayu000/cc-starship/pkg/config"
+	apperrors "github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type memoryUserRepo struct {
-	users []*domain.User
+	users       []*domain.User
+	findByIDErr error
 }
 
+var errSimulatedDBOutage = errors.New("simulated database outage")
+
 func (r *memoryUserRepo) FindByID(_ context.Context, id string) (*domain.User, error) {
+	if r.findByIDErr != nil {
+		return nil, r.findByIDErr
+	}
 	for _, u := range r.users {
 		if u.ID == id {
 			copy := *u
 			return &copy, nil
 		}
 	}
-	return nil, errUserNotFound
+	return nil, domain.ErrUserNotFound
 }
 
 func (r *memoryUserRepo) FindByEmail(_ context.Context, email string) (*domain.User, error) {
@@ -33,7 +41,7 @@ func (r *memoryUserRepo) FindByEmail(_ context.Context, email string) (*domain.U
 			return &copy, nil
 		}
 	}
-	return nil, errUserNotFound
+	return nil, domain.ErrUserNotFound
 }
 
 func (r *memoryUserRepo) FindAll(context.Context) ([]*domain.User, error) {
@@ -84,12 +92,6 @@ func (r *memoryUserRepo) HasUsableAdmin(_ context.Context) (bool, error) {
 
 func (r *memoryUserRepo) Update(context.Context, *domain.User) error { return nil }
 func (r *memoryUserRepo) Delete(context.Context, string) error         { return nil }
-
-type userNotFoundError struct{}
-
-func (userNotFoundError) Error() string { return "user not found" }
-
-var errUserNotFound = userNotFoundError{}
 
 func newTestAuthService(repo *memoryUserRepo) *AuthService {
 	cfg := &config.Config{}
@@ -460,5 +462,78 @@ func TestValidateTokenRejectsInactiveUser(t *testing.T) {
 	_, err = svc.ValidateToken(context.Background(), token)
 	if err == nil {
 		t.Fatal("expected ValidateToken to reject inactive user")
+	}
+}
+
+func TestValidateTokenInfrastructureLookupFailure(t *testing.T) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	now := time.Now()
+	user := &domain.User{
+		ID:        "user-1",
+		Email:     "user@example.com",
+		Password:  string(hashed),
+		Role:      "user",
+		Active:    true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repo := &memoryUserRepo{users: []*domain.User{user}, findByIDErr: errSimulatedDBOutage}
+	svc := newTestAuthService(repo)
+
+	token, err := svc.Login(context.Background(), "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	_, err = svc.ValidateToken(context.Background(), token)
+	if err == nil {
+		t.Fatal("expected ValidateToken to fail on infrastructure lookup error")
+	}
+	appErr, ok := apperrors.IsAppError(err)
+	if !ok {
+		t.Fatalf("expected AppError, got %T %v", err, err)
+	}
+	if appErr.Code != 500 {
+		t.Fatalf("expected internal status 500, got %d (%s)", appErr.Code, appErr.Message)
+	}
+}
+
+func TestValidateTokenMissingUserIsUnauthorized(t *testing.T) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	now := time.Now()
+	user := &domain.User{
+		ID:        "user-1",
+		Email:     "user@example.com",
+		Password:  string(hashed),
+		Role:      "user",
+		Active:    true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repo := &memoryUserRepo{users: []*domain.User{user}}
+	svc := newTestAuthService(repo)
+
+	token, err := svc.Login(context.Background(), "user@example.com", "password")
+	if err != nil {
+		t.Fatalf("Login returned error: %v", err)
+	}
+
+	repo.users = nil
+	_, err = svc.ValidateToken(context.Background(), token)
+	if err == nil {
+		t.Fatal("expected ValidateToken to reject missing user")
+	}
+	appErr, ok := apperrors.IsAppError(err)
+	if !ok {
+		t.Fatalf("expected AppError, got %T %v", err, err)
+	}
+	if appErr.Code != 401 {
+		t.Fatalf("expected unauthorized status 401, got %d (%s)", appErr.Code, appErr.Message)
 	}
 }

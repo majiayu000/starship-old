@@ -11,6 +11,9 @@ import (
 // system with no active administrator (role demotion, deactivation, or deletion).
 var ErrCannotDemoteLastAdmin = errors.New("cannot demote, deactivate, or delete the sole active administrator")
 
+// ErrUserNotFound indicates the user row is absent (invalid session), not a DB outage.
+var ErrUserNotFound = errors.New("user not found")
+
 // User represents a user in the system
 type User struct {
 	ID        string    `json:"id"`

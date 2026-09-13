@@ -181,6 +181,8 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
       } else if (requestToken && !status.role && getAuthToken() === requestToken) {
         // Token was sent but server omitted role (expired JWT, deactivated user,
         // etc.). Clear the stale session so privileged UI does not linger.
+        // Infrastructure failures return non-2xx and are handled in catch below
+        // so brief DB outages do not log out otherwise valid users.
         clearAuthSessionIfCurrent(requestToken);
       }
       // Drop the role from the returned status when the session moved on so

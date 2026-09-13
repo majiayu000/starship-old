@@ -49,7 +49,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User,
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("user not found: %w", err)
+			return nil, fmt.Errorf("%w: %w", domain.ErrUserNotFound, err)
 		}
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}
@@ -80,7 +80,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*domain
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("user not found: %w", err)
+			return nil, fmt.Errorf("%w: %w", domain.ErrUserNotFound, err)
 		}
 		return nil, fmt.Errorf("failed to find user: %w", err)
 	}

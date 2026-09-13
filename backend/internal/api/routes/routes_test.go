@@ -10,11 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/pkg/config"
+	apperrors "github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 )
 
 // stubAuthService satisfies ports.AuthService for route registration tests.
-type stubAuthService struct{}
+type stubAuthService struct {
+	validateErr error
+	user        *domain.User
+}
 
 func (s *stubAuthService) Register(ctx context.Context, email, password, firstName, lastName string) (*domain.User, error) {
 	return nil, nil
@@ -25,6 +29,12 @@ func (s *stubAuthService) Login(ctx context.Context, email, password string) (st
 }
 
 func (s *stubAuthService) ValidateToken(ctx context.Context, token string) (*domain.User, error) {
+	if s.validateErr != nil {
+		return nil, s.validateErr
+	}
+	if s.user != nil {
+		return s.user, nil
+	}
 	return &domain.User{ID: "test-user", Role: "admin"}, nil
 }
 
@@ -209,5 +219,49 @@ func TestAuthStatusReportsDisabledWhenAuthServiceNil(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"enabled":false`) {
 		t.Fatalf("expected enabled false, body=%s", rec.Body.String())
+	}
+}
+
+func TestAuthStatusInfrastructureFailureReturnsServerError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := &config.Config{}
+	log := logger.New(config.LoggerConfig{Level: "error", Format: "text"})
+
+	authSvc := &stubAuthService{validateErr: apperrors.NewInternal("Failed to load user for token validation", nil)}
+	RegisterRoutes(router, nil, authSvc, nil, nil, cfg, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthStatusInvalidTokenOmitsRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := &config.Config{}
+	log := logger.New(config.LoggerConfig{Level: "error", Format: "text"})
+
+	authSvc := &stubAuthService{validateErr: apperrors.NewUnauthorized("Invalid token", nil)}
+	RegisterRoutes(router, nil, authSvc, nil, nil, cfg, log)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	req.Header.Set("Authorization", "Bearer expired-token")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"enabled":true`) {
+		t.Fatalf("expected enabled true, body=%s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"role"`) {
+		t.Fatalf("expected role omitted for invalid session, body=%s", rec.Body.String())
 	}
 }

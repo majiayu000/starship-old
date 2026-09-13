@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	stderrors "errors"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -159,10 +161,13 @@ func (s *AuthService) ValidateToken(ctx context.Context, token string) (*domain.
 		return nil, errors.NewUnauthorized("Invalid token", err)
 	}
 
-	// Get user by ID
+	// Get user by ID. Missing users are invalid sessions; other errors are infrastructure.
 	user, err := s.userRepo.FindByID(ctx, claims.UserID)
 	if err != nil {
-		return nil, errors.NewUnauthorized("User not found", err)
+		if stderrors.Is(err, domain.ErrUserNotFound) || stderrors.Is(err, sql.ErrNoRows) {
+			return nil, errors.NewUnauthorized("User not found", err)
+		}
+		return nil, errors.NewInternal("Failed to load user for token validation", err)
 	}
 
 	if !user.Active {
