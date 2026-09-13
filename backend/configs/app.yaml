@@ -46,7 +46,8 @@ auth:
   enabledMethods:
     - "jwt"
   jwt:
-    secretKey: "your-secret-key-here"
+    # Do not commit secrets. Provide via APP_AUTH_JWT_SECRETKEY (required when auth.enabled=true).
+    secretKey: ""
     issuer: "cc-starship-api"
     expiryDuration: "24h"
 
