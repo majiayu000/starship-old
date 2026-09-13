@@ -1,10 +1,15 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrCannotDemoteLastAdmin is returned when an update would leave the system
+// with no active administrator (role demotion or deactivation).
+var ErrCannotDemoteLastAdmin = errors.New("cannot demote or deactivate the sole active administrator")
 
 // User represents a user in the system
 type User struct {

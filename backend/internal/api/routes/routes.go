@@ -30,12 +30,16 @@ func RegisterRoutes(
 	var authMiddleware gin.HandlerFunc
 	var adminRoleMiddleware gin.HandlerFunc
 
-	// Initialize handlers and middlewares only if services are available
-	if userService != nil && authService != nil {
-		userHandler = handlers.NewUserHandler(userService, logger)
+	// Auth middleware depends only on authService so review/cache routes stay safe
+	// even when user management routes are not registered.
+	if authService != nil {
 		authHandler = handlers.NewAuthHandler(authService, logger)
 		authMiddleware = middleware.Auth(authService)
 		adminRoleMiddleware = middleware.RequireRole("admin")
+	}
+
+	if userService != nil {
+		userHandler = handlers.NewUserHandler(userService, logger)
 	}
 
 	// Initialize cache handler if caching is enabled
@@ -54,6 +58,9 @@ func RegisterRoutes(
 	// Group API routes
 	api := router.Group("/api/v1")
 	{
+		// Public auth-enabled probe for frontend (works even when authService is nil).
+		api.GET("/auth/status", handlers.AuthStatus(authService != nil))
+
 		// Register auth routes if auth service is available
 		if authHandler != nil {
 			auth := api.Group("/auth")
@@ -63,14 +70,15 @@ func RegisterRoutes(
 			}
 		}
 
-		// Register user routes if user service is available
-		if userHandler != nil {
+		// Register user routes if user service and auth middleware are available
+		if userHandler != nil && authMiddleware != nil {
 			users := api.Group("/users")
 			users.Use(authMiddleware)
 			{
 				users.GET("", adminRoleMiddleware, userHandler.GetUsers)
 				users.GET("/:id", userHandler.GetUser)
 				users.POST("", adminRoleMiddleware, userHandler.CreateUser)
+				// Self-or-admin authorization and privileged-field stripping are enforced in UpdateUser.
 				users.PUT("/:id", userHandler.UpdateUser)
 				users.DELETE("/:id", adminRoleMiddleware, userHandler.DeleteUser)
 			}
@@ -79,7 +87,7 @@ func RegisterRoutes(
 		// Register cache routes if cache service is available
 		if cacheHandler != nil {
 			cache := api.Group("/cache")
-			if authService != nil {
+			if authMiddleware != nil {
 				cache.Use(authMiddleware)
 				cache.Use(adminRoleMiddleware)
 			}
@@ -95,10 +103,9 @@ func RegisterRoutes(
 			// Group for review-related endpoints
 			review := api.Group("/review")
 			// Apply auth middleware if auth service is available
-			// 临时注释掉认证中间件
-			// if authService != nil {
-			// 	review.Use(authMiddleware)
-			// }
+			if authMiddleware != nil {
+				review.Use(authMiddleware)
+			}
 			{
 				// Get available data sources
 				review.GET("/sources", reviewHandler.GetDataSources)
@@ -115,8 +122,12 @@ func RegisterRoutes(
 					// Get a specific item
 					dataSource.GET("/items/:id", reviewHandler.GetByID)
 
-					// Review an item (update status)
-					dataSource.POST("/items/:id/review", reviewHandler.ReviewItem)
+					// Review an item (update status) — mutating write requires admin when auth is enabled
+					if adminRoleMiddleware != nil {
+						dataSource.POST("/items/:id/review", adminRoleMiddleware, reviewHandler.ReviewItem)
+					} else {
+						dataSource.POST("/items/:id/review", reviewHandler.ReviewItem)
+					}
 				}
 			}
 		}

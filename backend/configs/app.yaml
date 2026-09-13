@@ -49,6 +49,13 @@ auth:
     secretKey: "your-secret-key-here"
     issuer: "cc-starship-api"
     expiryDuration: "24h"
+  # Deployment-controlled first admin. Leave email/password empty to skip.
+  # Public /auth/register never promotes to admin.
+  bootstrapAdmin:
+    email: ""
+    password: ""
+    firstName: "Admin"
+    lastName: "User"
 
 features:
   enable_auth: true

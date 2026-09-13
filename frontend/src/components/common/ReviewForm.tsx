@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { ReviewableItem } from '@/models/reviewable-item';
+import { useAuthSession } from '@/hooks/useAuthSession';
 
 interface ReviewFormProps {
   item: ReviewableItem;
@@ -12,8 +13,23 @@ interface ReviewFormProps {
 }
 
 const ReviewForm: React.FC<ReviewFormProps> = ({ item, onSubmit }) => {
+  const { isAuthenticated, isAdmin, authRequired, canSubmitReview } = useAuthSession();
   const [status, setStatus] = useState<string>(item.reviewStatus || 'pending');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  if (authRequired && !isAuthenticated) {
+    return (
+      <p className="text-sm text-gray-500">请先登录后再提交审核。</p>
+    );
+  }
+
+  if (!canSubmitReview) {
+    return (
+      <p className="text-sm text-gray-500">
+        当前账号为只读用户，无法提交审核。请使用管理员账号登录。
+      </p>
+    );
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,4 +82,4 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onSubmit }) => {
   );
 };
 
-export default ReviewForm; 
+export default ReviewForm;

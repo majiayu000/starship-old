@@ -44,6 +44,19 @@ type AuthResponse struct {
 	User  interface{} `json:"user"`
 }
 
+// AuthStatusResponse reports whether the server requires authentication.
+type AuthStatusResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+// AuthStatus returns whether auth middleware is active for protected APIs.
+// Always public so the frontend can load review data when auth is disabled.
+func AuthStatus(enabled bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		utils.JSONResponse(c, http.StatusOK, AuthStatusResponse{Enabled: enabled})
+	}
+}
+
 // Register handles user registration
 func (h *AuthHandler) Register(c *gin.Context) {
 	// Parse request body

@@ -2,14 +2,20 @@ package services
 
 import (
 	"context"
+	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
 	"github.com/majiayu000/cc-starship/internal/infrastructure/auth"
+	"github.com/majiayu000/cc-starship/pkg/config"
 	"github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// loginEmailValidator matches Gin's binding:"email" rules used by LoginRequest.
+var loginEmailValidator = validator.New()
 
 // AuthService implements the authentication service
 type AuthService struct {
@@ -41,7 +47,8 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 		return nil, errors.NewInternal("Failed to hash password", err)
 	}
 
-	// Create new user
+	// Create new user (always role=user). First admin is provisioned only via
+	// EnsureBootstrapAdmin using deployment-controlled credentials.
 	user := domain.NewUser(email, string(hashedPassword), firstName, lastName)
 
 	// Save user to repository
@@ -50,6 +57,56 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 	}
 
 	return user, nil
+}
+
+// EnsureBootstrapAdmin creates the first admin from deployment config when no
+// admin exists. Safe to call on every startup; concurrent callers serialize via
+// CreateAdminIfAbsent. Public registration never promotes to admin.
+func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.BootstrapAdminConfig) error {
+	email := strings.TrimSpace(cfg.Email)
+	password := cfg.Password
+	emailEmpty := email == ""
+	passwordEmpty := password == ""
+	// Only skip when both credentials are absent. A partial config is a startup
+	// error so clean deployments cannot silently start without an admin.
+	if emailEmpty && passwordEmpty {
+		return nil
+	}
+	if emailEmpty || passwordEmpty {
+		return errors.NewBadRequest("Bootstrap admin requires both email and password", nil)
+	}
+
+	// Use the same validator as LoginRequest binding:"email" (go-playground).
+	// net/mail.ParseAddress is looser and accepts values login rejects (e.g. admin@-example.com).
+	if err := loginEmailValidator.Var(email, "email"); err != nil {
+		return errors.NewBadRequest("Invalid bootstrap admin email address", err)
+	}
+
+	firstName := strings.TrimSpace(cfg.FirstName)
+	if firstName == "" {
+		firstName = "Admin"
+	}
+	lastName := strings.TrimSpace(cfg.LastName)
+	if lastName == "" {
+		lastName = "User"
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.NewInternal("Failed to hash bootstrap admin password", err)
+	}
+
+	user := domain.NewUser(email, string(hashedPassword), firstName, lastName)
+	user.Role = "admin"
+
+	created, err := s.userRepo.CreateAdminIfAbsent(ctx, user)
+	if err != nil {
+		return errors.NewInternal("Failed to bootstrap admin user", err)
+	}
+	if created {
+		s.logger.Info("Bootstrapped first admin user from deployment config: " + email)
+	}
+	return nil
 }
 
 // Login authenticates a user and returns a JWT token
@@ -63,6 +120,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return "", errors.NewUnauthorized("Invalid email or password", nil)
+	}
+
+	if !user.Active {
+		return "", errors.NewUnauthorized("Account is inactive", nil)
 	}
 
 	// Generate JWT token
@@ -86,6 +147,10 @@ func (s *AuthService) ValidateToken(ctx context.Context, token string) (*domain.
 	user, err := s.userRepo.FindByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, errors.NewUnauthorized("User not found", err)
+	}
+
+	if !user.Active {
+		return nil, errors.NewUnauthorized("Account is inactive", nil)
 	}
 
 	return user, nil

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -82,6 +83,17 @@ type AuthConfig struct {
 	Enabled        bool
 	JWT            JWTConfig
 	EnabledMethods []string // "jwt", "oauth", "basic", etc.
+	// BootstrapAdmin provisions the first admin at process start when set.
+	// Leave email/password empty to skip (no public-register promotion).
+	BootstrapAdmin BootstrapAdminConfig `mapstructure:"bootstrapAdmin"`
+}
+
+// BootstrapAdminConfig holds deployment-controlled first-admin credentials.
+type BootstrapAdminConfig struct {
+	Email     string `mapstructure:"email"`
+	Password  string `mapstructure:"password"`
+	FirstName string `mapstructure:"firstName"`
+	LastName  string `mapstructure:"lastName"`
 }
 
 // JWTConfig holds JWT authentication configuration
@@ -162,9 +174,13 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Override with environment variables
+	// Override with environment variables.
+	// Replacer maps dotted keys (auth.bootstrapAdmin.email) to conventional
+	// underscored env names (APP_AUTH_BOOTSTRAPADMIN_EMAIL).
 	v.SetEnvPrefix("APP")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	bindBootstrapAdminEnv(v)
 
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
@@ -177,6 +193,16 @@ func Load() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// bindBootstrapAdminEnv ensures deployment-controlled bootstrap credentials are
+// readable from conventional prefixed env vars even when nested Unmarshal paths
+// would otherwise miss AutomaticEnv lookups.
+func bindBootstrapAdminEnv(v *viper.Viper) {
+	_ = v.BindEnv("auth.bootstrapAdmin.email", "APP_AUTH_BOOTSTRAPADMIN_EMAIL")
+	_ = v.BindEnv("auth.bootstrapAdmin.password", "APP_AUTH_BOOTSTRAPADMIN_PASSWORD")
+	_ = v.BindEnv("auth.bootstrapAdmin.firstName", "APP_AUTH_BOOTSTRAPADMIN_FIRSTNAME")
+	_ = v.BindEnv("auth.bootstrapAdmin.lastName", "APP_AUTH_BOOTSTRAPADMIN_LASTNAME")
 }
 
 // setDefaults sets default values for configuration
@@ -220,6 +246,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.enabledMethods", []string{"jwt"})
 	v.SetDefault("auth.jwt.issuer", "api")
 	v.SetDefault("auth.jwt.expiryDuration", "24h")
+	v.SetDefault("auth.bootstrapAdmin.email", "")
+	v.SetDefault("auth.bootstrapAdmin.password", "")
+	v.SetDefault("auth.bootstrapAdmin.firstName", "Admin")
+	v.SetDefault("auth.bootstrapAdmin.lastName", "User")
 
 	// Features defaults
 	v.SetDefault("features.enable_auth", true)
@@ -245,8 +275,9 @@ func setDefaults(v *viper.Viper) {
 
 // validateConfig validates the configuration
 func validateConfig(config *Config) error {
-	// If auth is enabled, validate JWT config
-	if config.Auth.Enabled {
+	// Require JWT only when both auth switches are on, matching main.go's
+	// authService construction (auth.enabled && features.enable_auth).
+	if config.Auth.Enabled && config.Features.EnableAuth {
 		// Validate required JWT secret key
 		if config.Auth.JWT.SecretKey == "" {
 			// For development, generate a random secret if not provided

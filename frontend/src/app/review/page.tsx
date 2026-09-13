@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DataSourceSelector from '@/components/common/DataSourceSelector';
 import { StrategyFactory } from '@/strategies/factory';
 import { reviewApi } from '@/api/review';
@@ -10,13 +10,21 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ReviewableItem, PaginatedResult } from '@/models/reviewable-item';
 import ReviewForm from '@/components/common/ReviewForm';
-import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/common/DataTable';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useAuthSession } from '@/hooks/useAuthSession';
+
+type FetchItemsParams = {
+  page?: number;
+  pageSize?: number;
+  cancelled?: () => boolean;
+};
 
 export default function ReviewPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { authEpoch, isAuthenticated, canAccessReview } = useAuthSession();
+  const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -34,12 +42,32 @@ export default function ReviewPage() {
   const [updatingItem, setUpdatingItem] = useState<boolean>(false);
 
   useEffect(() => {
+    authGenerationRef.current += 1;
+  }, [authEpoch, isAuthenticated, canAccessReview]);
+
+  useEffect(() => {
+    if (!canAccessReview) {
+      setAvailableSources([]);
+      setDataSource('');
+      setItems({ items: [], total: 0, page: 1, pageSize: 10 });
+      setSelectedItem(null);
+      setFilterOptions({});
+      setFilters({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     // 获取可用的数据源
     const fetchDataSources = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const sources = await reviewApi.getDataSources();
+        if (cancelled) return;
         setAvailableSources(sources);
-        
+
         // 检查URL中是否有dataSource参数
         const dataSourceParam = searchParams.get('dataSource');
         if (dataSourceParam && StrategyFactory.isDataSourceSupported(dataSourceParam)) {
@@ -47,63 +75,84 @@ export default function ReviewPage() {
         } else if (sources.length > 0) {
           setDataSource(sources[0]);
         }
-        
+
         setLoading(false);
       } catch (err) {
+        if (cancelled) return;
         setError('获取数据源失败');
         setLoading(false);
       }
     };
-    
+
     fetchDataSources();
-  }, [searchParams]);
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, authEpoch, isAuthenticated, canAccessReview]);
 
   useEffect(() => {
-    if (!dataSource) return;
-    
+    if (!canAccessReview || !dataSource) return;
+
+    let cancelled = false;
     const fetchFilterOptions = async () => {
       try {
         const options = await reviewApi.getFilterOptions(dataSource);
+        if (cancelled) return;
         setFilterOptions(options);
       } catch (err) {
+        if (cancelled) return;
         setError('获取筛选选项失败');
       }
     };
-    
+
     fetchFilterOptions();
-    
+
     // 更新URL
     const params = new URLSearchParams(searchParams.toString());
     params.set('dataSource', dataSource);
     router.push(`/review?${params.toString()}`);
-    
+
     // 重置筛选条件和已选择的项目
     setFilters({});
     setSelectedItem(null);
-    
+
     // 加载项目
     fetchItems({
       page: 1,
       pageSize: 10,
+      cancelled: () => cancelled,
     });
-  }, [dataSource, router, searchParams]);
 
-  const fetchItems = async (params: any) => {
+    return () => {
+      cancelled = true;
+    };
+  }, [dataSource, router, searchParams, authEpoch, isAuthenticated, canAccessReview]);
+
+  // Ignore async results from a prior auth epoch after logout/login.
+  // Always compare against authGenerationRef so filter/page/review callers
+  // that omit an explicit cancelled callback still discard stale responses.
+  const fetchItems = async (params: FetchItemsParams = {}) => {
     if (!dataSource) return;
-    
+    const { cancelled, ...query } = params;
+    const generation = authGenerationRef.current;
+    const isStale = () =>
+      Boolean(cancelled?.()) || generation !== authGenerationRef.current;
+
     setLoading(true);
     try {
       const strategy = StrategyFactory.getStrategy(dataSource);
       const filterParams = strategy?.formatFilterParams(filters) || {};
-      
+
       const result = await reviewApi.getItems(dataSource, {
         ...filterParams,
-        ...params,
+        ...query,
       });
-      
+      if (isStale()) return;
+
       setItems(result);
       setLoading(false);
     } catch (err) {
+      if (isStale()) return;
       setError('获取项目列表失败');
       setLoading(false);
     }
@@ -114,12 +163,15 @@ export default function ReviewPage() {
   };
 
   const handleItemSelect = async (item: ReviewableItem) => {
+    const generation = authGenerationRef.current;
     setSelectedItem(null); // 先清空，显示加载状态
-    
+
     try {
       const detailedItem = await reviewApi.getItemById(dataSource, item.originalId);
+      if (generation !== authGenerationRef.current) return;
       setSelectedItem(detailedItem);
     } catch (err) {
+      if (generation !== authGenerationRef.current) return;
       setError('获取项目详情失败');
     }
   };
@@ -141,23 +193,27 @@ export default function ReviewPage() {
 
   const handleReviewSubmit = async (statusUpdate: any) => {
     if (!selectedItem) return;
-    
+    const generation = authGenerationRef.current;
+
     setUpdatingItem(true);
     try {
       await reviewApi.reviewItem(dataSource, selectedItem.originalId, statusUpdate);
-      
+      if (generation !== authGenerationRef.current) return;
+
       // 刷新项目列表
       fetchItems({
         page: items.page,
         pageSize: items.pageSize,
       });
-      
+
       // 重新获取当前项目详情
       const updatedItem = await reviewApi.getItemById(dataSource, selectedItem.originalId);
+      if (generation !== authGenerationRef.current) return;
       setSelectedItem(updatedItem);
-      
+
       setUpdatingItem(false);
     } catch (err) {
+      if (generation !== authGenerationRef.current) return;
       setError('提交审核结果失败');
       setUpdatingItem(false);
     }
@@ -191,14 +247,14 @@ export default function ReviewPage() {
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">题目审核系统</h1>
-      
+
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertTitle>错误</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      
+
       <div className="mb-6">
         <DataSourceSelector
           sources={availableSources}
@@ -206,14 +262,14 @@ export default function ReviewPage() {
           onChange={handleDataSourceChange}
         />
       </div>
-      
+
       {!strategy && dataSource && (
         <Alert variant="destructive">
           <AlertTitle>不支持的数据源</AlertTitle>
           <AlertDescription>选择的数据源 {dataSource} 不受支持</AlertDescription>
         </Alert>
       )}
-      
+
       {strategy && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
           <div className="md:col-span-4">
@@ -223,7 +279,7 @@ export default function ReviewPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           <div className="md:col-span-8">
             <Tabs defaultValue="table" onValueChange={(v) => setViewMode(v as 'table' | 'list')}>
               <div className="flex justify-between items-center mb-4">
@@ -232,7 +288,7 @@ export default function ReviewPage() {
                   <TabsTrigger value="list">列表视图</TabsTrigger>
                 </TabsList>
               </div>
-              
+
               <TabsContent value="table" className="mt-0">
                 <Card>
                   <CardContent className="pt-6">
@@ -251,7 +307,7 @@ export default function ReviewPage() {
                   </CardContent>
                 </Card>
               </TabsContent>
-              
+
               <TabsContent value="list" className="mt-0">
                 <Card>
                   <CardContent className="pt-6">
@@ -281,7 +337,7 @@ export default function ReviewPage() {
           </div>
         </div>
       )}
-      
+
       {selectedItem && strategy && (
         <div className="mt-8">
           <h2 className="text-xl font-bold mb-4">项目详情</h2>
@@ -293,14 +349,14 @@ export default function ReviewPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             <div className="md:col-span-4">
               <Card>
                 <CardContent className="pt-6">
                   <h3 className="text-lg font-medium mb-4">提交审核</h3>
-                  <ReviewForm 
-                    item={selectedItem} 
-                    onSubmit={handleReviewSubmit} 
+                  <ReviewForm
+                    item={selectedItem}
+                    onSubmit={handleReviewSubmit}
                   />
                 </CardContent>
               </Card>
@@ -310,4 +366,4 @@ export default function ReviewPage() {
       )}
     </div>
   );
-} 
+}

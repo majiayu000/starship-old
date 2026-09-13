@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/majiayu000/cc-starship/internal/api/middleware"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
 	"github.com/majiayu000/cc-starship/pkg/errors"
@@ -93,45 +94,56 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	utils.JSONResponse(c, http.StatusCreated, user)
 }
 
-// UpdateUser handles the request to update a user
+// UpdateUser handles the request to update a user.
+// Callers must be the same user (self profile edit) or an admin.
+// Non-admin callers may update profile fields only; Role and Active are ignored.
 func (h *UserHandler) UpdateUser(c *gin.Context) {
-	// Get user ID from request path parameters
 	id := c.Param("id")
 	if id == "" {
 		utils.ErrorResponse(c, errors.NewBadRequest("User ID is required", nil))
 		return
 	}
 
-	// Parse request body
+	caller, ok := middleware.CurrentUser(c)
+	if !ok {
+		utils.ErrorResponse(c, errors.NewUnauthorized("User not authenticated", nil))
+		return
+	}
+
+	isAdmin := caller.Role == "admin"
+	if !isAdmin && caller.ID != id {
+		utils.ErrorResponse(c, errors.NewForbidden("Insufficient permissions", nil))
+		return
+	}
+
 	var req UserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.ErrorResponse(c, errors.NewBadRequest("Invalid request body", err))
 		return
 	}
 
-	// Get existing user
 	user, err := h.userService.GetUserByID(c, id)
 	if err != nil {
 		utils.ErrorResponse(c, err)
 		return
 	}
 
-	// Update user
 	user.Email = req.Email
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
-	if req.Role != "" {
-		user.Role = req.Role
+	if isAdmin {
+		if req.Role != "" {
+			user.Role = req.Role
+		}
+		user.Active = req.Active
 	}
-	user.Active = req.Active
 
-	// Save user
+	// Last-admin demotion is rejected atomically in the repository/service layer.
 	if err := h.userService.UpdateUser(c, user); err != nil {
 		utils.ErrorResponse(c, err)
 		return
 	}
 
-	// Send response
 	utils.JSONResponse(c, http.StatusOK, user)
 }
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
@@ -66,8 +67,14 @@ func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
 		return errors.NewNotFound("User not found", err)
 	}
 
-	// Update the user
-	return s.userRepo.Update(ctx, user)
+	// Update the user (repository enforces last-active-admin invariant atomically)
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		if stderrors.Is(err, domain.ErrCannotDemoteLastAdmin) {
+			return errors.NewForbidden("Cannot demote or deactivate the sole active administrator", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // DeleteUser deletes a user
