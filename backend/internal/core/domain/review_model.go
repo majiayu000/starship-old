@@ -2,8 +2,68 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 )
+
+// ErrInvalidSortBy indicates that QueryParams.SortBy is not in the allowlist.
+var ErrInvalidSortBy = errors.New("invalid sortBy")
+
+// sortableColumnsBySource maps API field names (camelCase and snake_case) to
+// fixed database column identifiers for ORDER BY. Values are never taken from
+// user input directly.
+var sortableColumnsBySource = map[string]map[string]string{
+	DataSourceSATOneprep: {
+		"originalId":      "original_id",
+		"original_id":     "original_id",
+		"reviewStatus":    "review_status",
+		"review_status":   "review_status",
+		"url":             "url",
+		"questionSet":     "question_set",
+		"question_set":    "question_set",
+		"subject":         "subject",
+		"difficulty":      "difficulty",
+		"domain":          "domain",
+		"skill":           "skill",
+		"questionType":    "question_type",
+		"question_type":   "question_type",
+		"questionId":      "question_id",
+		"question_id":     "question_id",
+		"knowledgePoint":  "knowledge_point",
+		"knowledge_point": "knowledge_point",
+	},
+	DataSourceSATIXL: {
+		"originalId":      "original_id",
+		"original_id":     "original_id",
+		"reviewStatus":    "review_status",
+		"review_status":   "review_status",
+		"skill":           "skill",
+		"knowledgePoint":  "knowledge_point",
+		"knowledge_point": "knowledge_point",
+		"questionId":      "question_id",
+		"question_id":     "question_id",
+	},
+}
+
+// ResolveSortColumn returns a safe DB column for ORDER BY.
+// Empty sortBy defaults to original_id. Unknown values return ErrInvalidSortBy.
+func ResolveSortColumn(dataSource, sortBy string) (string, error) {
+	if sortBy == "" {
+		return "original_id", nil
+	}
+
+	columns, ok := sortableColumnsBySource[dataSource]
+	if !ok {
+		return "", fmt.Errorf("%w: unsupported data source %q", ErrInvalidSortBy, dataSource)
+	}
+
+	column, ok := columns[sortBy]
+	if !ok {
+		return "", fmt.Errorf("%w: %q is not an allowed sort column", ErrInvalidSortBy, sortBy)
+	}
+	return column, nil
+}
 
 // ReviewStatus constants
 const (
