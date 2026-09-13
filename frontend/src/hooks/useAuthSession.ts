@@ -10,7 +10,7 @@ import {
 } from 'react';
 import {
   AUTH_CHANGE_EVENT,
-  fetchAuthEnabled,
+  fetchAuthStatus,
   getAuthRole,
   getAuthToken,
   getAuthUsername,
@@ -64,6 +64,11 @@ function readSession(
   const role = getAuthRole();
   const isAuthenticated = Boolean(token);
   const isAdmin = role === 'admin';
+  // Wait for /auth/status before granting access so hydration does not start
+  // protected loaders that the probe would immediately invalidate/duplicate.
+  const access = authStatusLoaded
+    ? deriveAccess(isAuthenticated, isAdmin, authRequired)
+    : { canAccessReview: false, canSubmitReview: false };
   return {
     token,
     username: getAuthUsername(),
@@ -72,8 +77,23 @@ function readSession(
     isAdmin,
     authRequired,
     authStatusLoaded,
-    ...deriveAccess(isAuthenticated, isAdmin, authRequired),
+    ...access,
   };
+}
+
+function sessionAccessFingerprint(
+  s: Omit<AuthSessionState, 'authEpoch'>
+): string {
+  return [
+    s.token ?? '',
+    s.role ?? '',
+    s.isAuthenticated,
+    s.isAdmin,
+    s.authRequired,
+    s.authStatusLoaded,
+    s.canAccessReview,
+    s.canSubmitReview,
+  ].join('|');
 }
 
 const AuthSessionContext = createContext<AuthSessionState | null>(null);
@@ -89,37 +109,64 @@ function useAuthSessionState(): AuthSessionState {
   useEffect(() => {
     let cancelled = false;
 
-    const sync = () => {
-      setSession((prev) => ({
-        authEpoch: prev.authEpoch + 1,
-        ...readSession(prev.authRequired, prev.authStatusLoaded),
-      }));
+    const applySession = (
+      nextBase: Omit<AuthSessionState, 'authEpoch'>,
+      forceEpochBump: boolean
+    ) => {
+      setSession((prev) => {
+        const changed =
+          forceEpochBump ||
+          sessionAccessFingerprint(prev) !== sessionAccessFingerprint(nextBase);
+        return {
+          authEpoch: changed ? prev.authEpoch + 1 : prev.authEpoch,
+          ...nextBase,
+        };
+      });
     };
 
-    // Hydrate from localStorage only after mount.
+    const syncFromStorage = () => {
+      setSession((prev) => {
+        const next = readSession(prev.authRequired, prev.authStatusLoaded);
+        const changed =
+          sessionAccessFingerprint(prev) !== sessionAccessFingerprint(next);
+        return {
+          authEpoch: changed ? prev.authEpoch + 1 : prev.authEpoch,
+          ...next,
+        };
+      });
+    };
+
+    // Hydrate token/role from localStorage after mount, but keep access gated
+    // until /auth/status completes (authStatusLoaded stays false here).
     setSession((prev) => ({
       ...prev,
       ...readSession(prev.authRequired, prev.authStatusLoaded),
     }));
 
     (async () => {
-      const enabled = await fetchAuthEnabled();
+      const status = await fetchAuthStatus();
       if (cancelled) return;
-      setSession((prev) => {
-        const next = readSession(enabled, true);
-        return {
-          authEpoch: prev.authEpoch + 1,
-          ...next,
-        };
-      });
+      // fetchAuthStatus may have updated AUTH_ROLE_KEY; re-read after probe.
+      applySession(readSession(status.enabled, true), false);
     })();
 
-    window.addEventListener(AUTH_CHANGE_EVENT, sync);
-    window.addEventListener('storage', sync);
+    const onFocus = () => {
+      // Re-probe on focus so a promoted user picks up the new role without logout.
+      void (async () => {
+        const status = await fetchAuthStatus();
+        if (cancelled) return;
+        applySession(readSession(status.enabled, true), false);
+      })();
+    };
+
+    window.addEventListener(AUTH_CHANGE_EVENT, syncFromStorage);
+    window.addEventListener('storage', syncFromStorage);
+    window.addEventListener('focus', onFocus);
     return () => {
       cancelled = true;
-      window.removeEventListener(AUTH_CHANGE_EVENT, sync);
-      window.removeEventListener('storage', sync);
+      window.removeEventListener(AUTH_CHANGE_EVENT, syncFromStorage);
+      window.removeEventListener('storage', syncFromStorage);
+      window.removeEventListener('focus', onFocus);
     };
   }, []);
 

@@ -59,7 +59,8 @@ func RegisterRoutes(
 	api := router.Group("/api/v1")
 	{
 		// Public auth-enabled probe for frontend (works even when authService is nil).
-		api.GET("/auth/status", handlers.AuthStatus(authService != nil))
+		// When Bearer is present, also returns the caller's current DB role.
+		api.GET("/auth/status", handlers.AuthStatus(authService != nil, authService))
 
 		// Register auth routes if auth service is available
 		if authHandler != nil {

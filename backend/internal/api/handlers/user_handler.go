@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/majiayu000/cc-starship/internal/api/middleware"
@@ -10,6 +11,7 @@ import (
 	"github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 	"github.com/majiayu000/cc-starship/pkg/utils"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // UserHandler handles user-related requests
@@ -28,8 +30,11 @@ func NewUserHandler(userService ports.UserService, logger *logger.Logger) *UserH
 
 // UserRequest represents the request body for user operations.
 // Active is a pointer so JSON omission leaves the existing (or default) value unchanged.
+// Password is required when creating an administrator so the account can log in
+// and count toward last-active-admin / bootstrap predicates.
 type UserRequest struct {
 	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password"`
 	FirstName string `json:"firstName" binding:"required"`
 	LastName  string `json:"lastName" binding:"required"`
 	Role      string `json:"role"`
@@ -78,11 +83,32 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Create user
-	user := domain.NewUser(req.Email, "", req.FirstName, req.LastName)
-	if req.Role != "" {
-		user.Role = req.Role
+	role := req.Role
+	if role == "" {
+		role = "user"
 	}
+
+	password := ""
+	if role == "admin" {
+		if strings.TrimSpace(req.Password) == "" {
+			utils.ErrorResponse(c, errors.NewBadRequest("Administrator accounts require a password", nil))
+			return
+		}
+		if len(req.Password) < 6 {
+			utils.ErrorResponse(c, errors.NewBadRequest("Password must be at least 6 characters", nil))
+			return
+		}
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			utils.ErrorResponse(c, errors.NewInternal("Failed to hash password", err))
+			return
+		}
+		password = string(hashed)
+	}
+
+	// Create user
+	user := domain.NewUser(req.Email, password, req.FirstName, req.LastName)
+	user.Role = role
 	if req.Active != nil {
 		user.Active = *req.Active
 	}

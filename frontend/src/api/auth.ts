@@ -15,6 +15,12 @@ export type AuthUser = {
   role: string;
 };
 
+export type AuthStatus = {
+  enabled: boolean;
+  /** Present when a valid Bearer token was accepted; reflects the current DB role. */
+  role?: string | null;
+};
+
 type AuthResponse = {
   token: string;
   user: AuthUser;
@@ -60,6 +66,22 @@ export function getAuthRole(): string | null {
 
 export function isAdmin(): boolean {
   return getAuthRole() === 'admin';
+}
+
+/** Update only the cached role when the server reports a fresher value. */
+export function updateCachedAuthRole(role: string, options?: { notify?: boolean }): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const next = role || 'user';
+  if (localStorage.getItem(AUTH_ROLE_KEY) === next) {
+    return;
+  }
+  localStorage.setItem(AUTH_ROLE_KEY, next);
+  if (options?.notify === false) {
+    return;
+  }
+  notifyAuthChange();
 }
 
 export function setAuthSession(token: string, user: AuthUser): void {
@@ -117,23 +139,50 @@ export function logout(): void {
   clearAuthSession();
 }
 
-/** Whether the backend currently requires Bearer auth for review APIs. */
-export async function fetchAuthEnabled(): Promise<boolean> {
+function parseAuthStatusPayload(payload: unknown): AuthStatus | null {
+  const body =
+    payload && typeof payload === 'object' && 'data' in payload
+      ? (payload as { data: unknown }).data
+      : payload;
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const record = body as { enabled?: boolean; role?: string };
+  if (typeof record.enabled !== 'boolean') {
+    return null;
+  }
+  return {
+    enabled: record.enabled,
+    role: typeof record.role === 'string' ? record.role : null,
+  };
+}
+
+/**
+ * Probe whether the backend requires Bearer auth, and refresh the cached role
+ * when a stored token is still valid (covers admin promotions without re-login).
+ */
+export async function fetchAuthStatus(): Promise<AuthStatus> {
   try {
-    const response = await axios.get(`${API_BASE_URL}/auth/status`);
-    const payload = response.data;
-    if (payload && typeof payload === 'object' && 'data' in payload) {
-      const nested = (payload as { data?: { enabled?: boolean } }).data;
-      if (nested && typeof nested.enabled === 'boolean') {
-        return nested.enabled;
+    const response = await axios.get(`${API_BASE_URL}/auth/status`, {
+      headers: authHeaders(),
+    });
+    const status = parseAuthStatusPayload(response.data);
+    if (status) {
+      if (status.role) {
+        // Silent write: callers re-read localStorage and decide whether to bump epoch.
+        updateCachedAuthRole(status.role, { notify: false });
       }
-    }
-    if (payload && typeof payload === 'object' && 'enabled' in payload) {
-      return Boolean((payload as { enabled?: boolean }).enabled);
+      return status;
     }
   } catch (error) {
     console.error('Failed to fetch auth status:', error);
   }
   // Fail closed: assume auth is required if the probe fails.
-  return true;
+  return { enabled: true, role: null };
+}
+
+/** @deprecated Prefer fetchAuthStatus; kept for call-site compatibility. */
+export async function fetchAuthEnabled(): Promise<boolean> {
+  const status = await fetchAuthStatus();
+  return status.enabled;
 }

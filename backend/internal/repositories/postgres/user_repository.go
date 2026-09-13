@@ -173,8 +173,12 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	}
 
 	var activeAdminExists bool
+	// Passwordless admin rows cannot log in and must not block bootstrap recovery.
 	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin' AND active = true)
+		SELECT EXISTS(
+			SELECT 1 FROM users
+			WHERE role = 'admin' AND active = true AND password <> ''
+		)
 	`).Scan(&activeAdminExists); err != nil {
 		return false, fmt.Errorf("failed to check for existing active admin: %w", err)
 	}
@@ -235,52 +239,63 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	return true, nil
 }
 
+// usableAdminPassword reports whether stored credentials can satisfy bcrypt login.
+// Empty passwords (e.g. POST /users admin rows) are not usable administrators.
+func usableAdminPassword(password string) bool {
+	return password != ""
+}
+
 // lockAdminsThenTarget locks every admin row in ORDER BY id, then the target
 // if it is not already in that set. Role/active classification for the last-
 // active-admin invariant must use these locked values only — never a prior
 // unlocked peek — so a concurrent promotion cannot demote the new sole admin.
-func lockAdminsThenTarget(ctx context.Context, tx *sql.Tx, targetID string) (role string, active bool, activeAdminCount int, err error) {
+// Only admins with non-empty passwords count toward the usable-admin invariant.
+func lockAdminsThenTarget(ctx context.Context, tx *sql.Tx, targetID string) (role string, active bool, hasPassword bool, activeAdminCount int, err error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
+		SELECT id, active, password FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
 	`)
 	if err != nil {
-		return "", false, 0, fmt.Errorf("failed to lock admin users: %w", err)
+		return "", false, false, 0, fmt.Errorf("failed to lock admin users: %w", err)
 	}
 	targetSeen := false
 	for rows.Next() {
 		var id string
 		var adminActive bool
-		if err := rows.Scan(&id, &adminActive); err != nil {
+		var password string
+		if err := rows.Scan(&id, &adminActive, &password); err != nil {
 			rows.Close()
-			return "", false, 0, fmt.Errorf("failed to scan admin row: %w", err)
+			return "", false, false, 0, fmt.Errorf("failed to scan admin row: %w", err)
 		}
-		if adminActive {
+		if adminActive && usableAdminPassword(password) {
 			activeAdminCount++
 		}
 		if id == targetID {
 			targetSeen = true
 			role = "admin"
 			active = adminActive
+			hasPassword = usableAdminPassword(password)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return "", false, 0, fmt.Errorf("error iterating admin users: %w", err)
+		return "", false, false, 0, fmt.Errorf("error iterating admin users: %w", err)
 	}
 	rows.Close()
 
 	if !targetSeen {
+		var password string
 		err = tx.QueryRowContext(ctx, `
-			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
-		`, targetID).Scan(&role, &active)
+			SELECT role, active, password FROM users WHERE id = $1 FOR UPDATE
+		`, targetID).Scan(&role, &active, &password)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return "", false, 0, fmt.Errorf("user not found")
+				return "", false, false, 0, fmt.Errorf("user not found")
 			}
-			return "", false, 0, fmt.Errorf("failed to lock user: %w", err)
+			return "", false, false, 0, fmt.Errorf("failed to lock user: %w", err)
 		}
+		hasPassword = usableAdminPassword(password)
 	}
-	return role, active, activeAdminCount, nil
+	return role, active, hasPassword, activeAdminCount, nil
 }
 
 // Update updates an existing user. Losing the last active admin (demotion or
@@ -294,12 +309,13 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	currentRole, currentActive, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, user.ID)
+	currentRole, currentActive, currentHasPassword, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, user.ID)
 	if err != nil {
 		return err
 	}
 
-	losingUsableAdmin := currentRole == "admin" && currentActive && (user.Role != "admin" || !user.Active)
+	// Passwordless admins are not usable; demoting them must not trip the guard.
+	losingUsableAdmin := currentRole == "admin" && currentActive && currentHasPassword && (user.Role != "admin" || !user.Active)
 	if losingUsableAdmin && activeAdminCount <= 1 {
 		return domain.ErrCannotDemoteLastAdmin
 	}
@@ -347,12 +363,12 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	currentRole, currentActive, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, id)
+	currentRole, currentActive, currentHasPassword, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, id)
 	if err != nil {
 		return err
 	}
 
-	if currentRole == "admin" && currentActive && activeAdminCount <= 1 {
+	if currentRole == "admin" && currentActive && currentHasPassword && activeAdminCount <= 1 {
 		return domain.ErrCannotDemoteLastAdmin
 	}
 

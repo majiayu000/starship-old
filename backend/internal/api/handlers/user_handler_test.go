@@ -56,11 +56,11 @@ func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error
 		return errNotFound
 	}
 	// Mirror repository last-active-admin invariant for handler unit tests.
-	losingUsableAdmin := existing.Role == "admin" && existing.Active && (user.Role != "admin" || !user.Active)
+	losingUsableAdmin := existing.Role == "admin" && existing.Active && existing.Password != "" && (user.Role != "admin" || !user.Active)
 	if losingUsableAdmin {
 		activeAdminCount := 0
 		for _, u := range m.users {
-			if u != nil && u.Role == "admin" && u.Active {
+			if u != nil && u.Role == "admin" && u.Active && u.Password != "" {
 				activeAdminCount++
 			}
 		}
@@ -79,10 +79,10 @@ func (m *mockUserService) DeleteUser(_ context.Context, id string) error {
 		return errNotFound
 	}
 	// Mirror repository last-active-admin invariant for handler unit tests.
-	if existing.Role == "admin" && existing.Active {
+	if existing.Role == "admin" && existing.Active && existing.Password != "" {
 		activeAdminCount := 0
 		for _, u := range m.users {
-			if u != nil && u.Role == "admin" && u.Active {
+			if u != nil && u.Role == "admin" && u.Active && u.Password != "" {
 				activeAdminCount++
 			}
 		}
@@ -102,9 +102,15 @@ var errNotFound = notFoundError{}
 
 func newTestUser(id, email, role string, active bool) *domain.User {
 	now := time.Now()
+	password := ""
+	if role == "admin" {
+		// Usable admins need credentials; empty-password admins are excluded from the invariant.
+		password = "hashed-password"
+	}
 	return &domain.User{
 		ID:        id,
 		Email:     email,
+		Password:  password,
 		FirstName: "First",
 		LastName:  "Last",
 		Role:      role,
@@ -381,4 +387,65 @@ func TestDeleteUser_AllowsAdminDeletionWhenAnotherActiveAdminExists(t *testing.T
 	if _, ok := svc.users["admin-1"]; ok {
 		t.Fatal("expected admin-1 to be deleted when another active admin exists")
 	}
+}
+
+func setupCreateRouter(handler *UserHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/v1/users", handler.CreateUser)
+	return r
+}
+
+func TestCreateUser_RejectsPasswordlessAdmin(t *testing.T) {
+	svc := &mockUserService{users: map[string]*domain.User{}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	router := setupCreateRouter(handler)
+
+	body := `{"email":"admin2@example.com","firstName":"New","lastName":"Admin","role":"admin"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateUser_AcceptsAdminWithPassword(t *testing.T) {
+	created := make([]*domain.User, 0, 1)
+	svc := &mockUserService{users: map[string]*domain.User{}}
+	svcCreate := &createCapturingService{mockUserService: svc, created: &created}
+	handler := NewUserHandler(svcCreate, &logger.Logger{})
+	router := setupCreateRouter(handler)
+
+	body := `{"email":"admin2@example.com","password":"secret1","firstName":"New","lastName":"Admin","role":"admin"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d body=%s", w.Code, w.Body.String())
+	}
+	if len(created) != 1 {
+		t.Fatalf("expected one created user, got %d", len(created))
+	}
+	if created[0].Role != "admin" {
+		t.Fatalf("expected admin role, got %q", created[0].Role)
+	}
+	if created[0].Password == "" || created[0].Password == "secret1" {
+		t.Fatal("expected bcrypt-hashed password to be stored")
+	}
+}
+
+type createCapturingService struct {
+	*mockUserService
+	created *[]*domain.User
+}
+
+func (s *createCapturingService) CreateUser(_ context.Context, user *domain.User) error {
+	copy := *user
+	*s.created = append(*s.created, &copy)
+	return nil
 }

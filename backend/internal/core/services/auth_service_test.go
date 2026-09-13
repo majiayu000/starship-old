@@ -53,7 +53,8 @@ func (r *memoryUserRepo) Create(_ context.Context, user *domain.User) error {
 
 func (r *memoryUserRepo) CreateAdminIfAbsent(_ context.Context, user *domain.User) (bool, error) {
 	for _, existing := range r.users {
-		if existing.Role == "admin" && existing.Active {
+		// Match postgres: only usable (non-empty password) active admins block bootstrap.
+		if existing.Role == "admin" && existing.Active && existing.Password != "" {
 			return false, nil
 		}
 	}
@@ -133,6 +134,7 @@ func TestEnsureBootstrapAdminSkipsWhenAdminExists(t *testing.T) {
 		users: []*domain.User{{
 			ID:        "existing-admin",
 			Email:     "root@example.com",
+			Password:  "hashed-password",
 			Role:      "admin",
 			Active:    true,
 			CreatedAt: now,
@@ -300,6 +302,39 @@ func TestEnsureBootstrapAdminRejectsPartialCredentials(t *testing.T) {
 	}
 	if len(repo.users) != 0 {
 		t.Fatalf("expected no users for partial bootstrap config, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminCreatesWhenOnlyPasswordlessAdminExists(t *testing.T) {
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "passwordless-admin",
+			Email:     "empty@example.com",
+			Password:  "", // cannot log in; must not block bootstrap
+			Role:      "admin",
+			Active:    true,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "admin@example.com",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
+	}
+	found := false
+	for _, u := range repo.users {
+		if u.Email == "admin@example.com" && u.Role == "admin" && u.Active && u.Password != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected bootstrap to create a usable admin despite passwordless admin row")
 	}
 }
 

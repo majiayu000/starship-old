@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
@@ -45,15 +46,29 @@ type AuthResponse struct {
 }
 
 // AuthStatusResponse reports whether the server requires authentication.
+// When a valid Bearer token is present, Role is the current DB role so clients
+// can refresh a stale login-time cache after promotions without waiting for 403.
 type AuthStatusResponse struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Role    string `json:"role,omitempty"`
 }
 
 // AuthStatus returns whether auth middleware is active for protected APIs.
 // Always public so the frontend can load review data when auth is disabled.
-func AuthStatus(enabled bool) gin.HandlerFunc {
+// Optional Authorization: Bearer refreshes the caller's current role from the DB.
+func AuthStatus(enabled bool, authService ports.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		utils.JSONResponse(c, http.StatusOK, AuthStatusResponse{Enabled: enabled})
+		resp := AuthStatusResponse{Enabled: enabled}
+		if enabled && authService != nil {
+			authHeader := c.GetHeader("Authorization")
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != "" {
+				if user, err := authService.ValidateToken(c, parts[1]); err == nil && user != nil {
+					resp.Role = user.Role
+				}
+			}
+		}
+		utils.JSONResponse(c, http.StatusOK, resp)
 	}
 }
 
