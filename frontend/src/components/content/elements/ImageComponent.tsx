@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import BaseComponent from '../base/BaseComponent';
 import { ImageComponentProps } from '../types';
+import { sanitizeSvg } from '@/lib/sanitizeHtml';
 
 /**
  * 图片内容组件 - 用于渲染不同类型的图片
@@ -21,7 +22,6 @@ const ImageComponent: React.FC<ImageComponentProps> = ({
   
   // 处理SVG内容
   if (type === 'svg') {
-    // 安全处理SVG内容
     const sanitizedSvg = sanitizeSvg(imageContent);
     
     return (
@@ -116,16 +116,6 @@ function isValidBase64(str: string): boolean {
     str.startsWith('data:image/') || 
     str.startsWith('data:application/octet-stream;base64,')
   );
-}
-
-/**
- * 安全处理SVG内容
- */
-function sanitizeSvg(svg: string): string {
-  return svg
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/on\w+="[^"]*"/gi, '')
-    .replace(/javascript:/gi, '');
 }
 
 // 使用 React.memo 优化渲染性能

@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 /**
  * 应用样式到内容
@@ -73,10 +74,7 @@ export const processHTML = (html: string): React.ReactNode => {
       );
     }
     
-    // 安全处理HTML内容 - 移除可能有问题的脚本标签
-    const safeHtml = html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/on\w+="[^"]*"/gi, ''); // 移除所有事件处理器
+    const safeHtml = sanitizeHtml(html);
     
     // 默认返回HTML内容
     return <div dangerouslySetInnerHTML={{ __html: safeHtml }} />;
@@ -84,4 +82,4 @@ export const processHTML = (html: string): React.ReactNode => {
     console.error('HTML处理错误:', error);
     return <span className="error">HTML处理错误</span>;
   }
-}; 
+};

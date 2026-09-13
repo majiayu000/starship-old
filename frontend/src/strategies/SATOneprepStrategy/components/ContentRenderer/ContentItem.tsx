@@ -4,6 +4,7 @@ import React from 'react';
 import { ContentItemProps, ContentTypeEnum, StringContent, FormulaContent, ImageContent, HtmlContent, FigureContent, TableContent, BlankContent } from './types';
 import { InlineMath, BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
+import { sanitizeHtml, sanitizeSvg, sanitizeRichHtml } from '@/lib/sanitizeHtml';
 
 /**
  * 内容项组件 - 负责渲染不同类型的内容项
@@ -67,7 +68,7 @@ export const ContentItem: React.FC<ContentItemProps> = ({
     const { content, type, altText = '', dimensions } = imageItem.content;
     
     if (type === 'svg') {
-      return <div dangerouslySetInnerHTML={{ __html: content }} />;
+      return <div dangerouslySetInnerHTML={{ __html: sanitizeSvg(content) }} />;
     }
     
     return (
@@ -87,7 +88,7 @@ export const ContentItem: React.FC<ContentItemProps> = ({
     const htmlItem = item as HtmlContent;
     if (!htmlItem.content) return null;
     
-    return <div dangerouslySetInnerHTML={{ __html: htmlItem.content }} />;
+    return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(htmlItem.content) }} />;
   };
   
   // 渲染图表内容
@@ -116,7 +117,7 @@ export const ContentItem: React.FC<ContentItemProps> = ({
       <div 
         className="figure-container w-full overflow-auto"
         style={{ maxWidth: '100%', margin: '10px 0' }}
-        dangerouslySetInnerHTML={{ __html: figureContent }} 
+        dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(figureContent) }} 
       />
     );
   };
@@ -127,7 +128,7 @@ export const ContentItem: React.FC<ContentItemProps> = ({
     const tableItem = item as TableContent;
     if (!tableItem.content?.content) return null;
     
-    return <div className="table-container" dangerouslySetInnerHTML={{ __html: tableItem.content.content }} />;
+    return <div className="table-container" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(tableItem.content.content) }} />;
   };
   
   // 渲染空白填充

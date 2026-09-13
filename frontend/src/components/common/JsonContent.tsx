@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { sanitizeSvg, sanitizeHtml } from '@/lib/sanitizeHtml';
 
 interface JsonContentProps {
   content: any;
@@ -66,10 +67,8 @@ const renderJson = (data: any): React.ReactNode => {
       // 处理SVG内容
       if (data.content.type === 'svg' || data.content.type === 'html') {
         const content = data.content.content;
-        // 安全处理内容，去除可能的脚本
-        const safeContent = typeof content === 'string' 
-          ? content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                   .replace(/on\w+="[^"]*"/gi, '')
+        const safeContent = typeof content === 'string'
+          ? (data.content.type === 'svg' ? sanitizeSvg(content) : sanitizeHtml(content))
           : '';
         
         return (
@@ -131,4 +130,4 @@ const renderJson = (data: any): React.ReactNode => {
   return <div className="json-value">{String(data)}</div>;
 };
 
-export default JsonContent; 
+export default JsonContent;
