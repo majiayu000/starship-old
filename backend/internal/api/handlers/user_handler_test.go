@@ -55,15 +55,16 @@ func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error
 	if !ok {
 		return errNotFound
 	}
-	// Mirror repository last-admin invariant for handler unit tests.
-	if existing.Role == "admin" && user.Role != "admin" {
-		adminCount := 0
+	// Mirror repository last-active-admin invariant for handler unit tests.
+	losingUsableAdmin := existing.Role == "admin" && existing.Active && (user.Role != "admin" || !user.Active)
+	if losingUsableAdmin {
+		activeAdminCount := 0
 		for _, u := range m.users {
-			if u != nil && u.Role == "admin" {
-				adminCount++
+			if u != nil && u.Role == "admin" && u.Active {
+				activeAdminCount++
 			}
 		}
-		if adminCount <= 1 {
+		if activeAdminCount <= 1 {
 			return errors.NewForbidden("Cannot demote the sole administrator", domain.ErrCannotDemoteLastAdmin)
 		}
 	}
@@ -235,6 +236,26 @@ func TestUpdateUser_RejectsSoleAdminSelfDemotion(t *testing.T) {
 	}
 	if svc.updated != nil {
 		t.Fatal("expected sole admin demotion to be rejected")
+	}
+}
+
+func TestUpdateUser_RejectsSoleActiveAdminDeactivation(t *testing.T) {
+	admin := newTestUser("admin-1", "admin@example.com", "admin", true)
+	svc := &mockUserService{users: map[string]*domain.User{"admin-1": admin}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	router := setupUpdateRouter(handler, admin)
+
+	body := `{"email":"admin@example.com","firstName":"First","lastName":"Last","role":"admin","active":false}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/admin-1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.updated != nil {
+		t.Fatal("expected sole active admin deactivation to be rejected")
 	}
 }
 

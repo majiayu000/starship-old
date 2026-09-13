@@ -67,10 +67,10 @@ func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
 		return errors.NewNotFound("User not found", err)
 	}
 
-	// Update the user (repository enforces last-admin demotion atomically)
+	// Update the user (repository enforces last-active-admin invariant atomically)
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		if stderrors.Is(err, domain.ErrCannotDemoteLastAdmin) {
-			return errors.NewForbidden("Cannot demote the sole administrator", err)
+			return errors.NewForbidden("Cannot demote or deactivate the sole active administrator", err)
 		}
 		return err
 	}

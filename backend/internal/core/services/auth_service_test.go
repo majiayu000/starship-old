@@ -53,8 +53,18 @@ func (r *memoryUserRepo) Create(_ context.Context, user *domain.User) error {
 
 func (r *memoryUserRepo) CreateAdminIfAbsent(_ context.Context, user *domain.User) (bool, error) {
 	for _, existing := range r.users {
-		if existing.Role == "admin" {
+		if existing.Role == "admin" && existing.Active {
 			return false, nil
+		}
+	}
+	for i, existing := range r.users {
+		if existing.Email == user.Email {
+			copy := *user
+			copy.ID = existing.ID
+			copy.Role = "admin"
+			copy.Active = true
+			r.users[i] = &copy
+			return true, nil
 		}
 	}
 	copy := *user
@@ -185,6 +195,89 @@ func TestEnsureBootstrapAdminRejectsDisplayNameEmail(t *testing.T) {
 	}
 	if len(repo.users) != 0 {
 		t.Fatalf("expected no users inserted for display-name email, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminRejectsHyphenDomainEmail(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "admin@-example.com",
+		Password: "password",
+	})
+	if err == nil {
+		t.Fatal("expected error for hyphen-leading domain label rejected by login email rules")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users inserted for login-invalid email, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminRecoversInactiveOnlyAdmin(t *testing.T) {
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "inactive-admin",
+			Email:     "admin@example.com",
+			Role:      "admin",
+			Active:    false,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "admin@example.com",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
+	}
+	if len(repo.users) != 1 {
+		t.Fatalf("expected reactivate existing row, got %d users", len(repo.users))
+	}
+	if !repo.users[0].Active || repo.users[0].Role != "admin" {
+		t.Fatalf("expected reactivated admin, got role=%q active=%v", repo.users[0].Role, repo.users[0].Active)
+	}
+	if repo.users[0].ID != "inactive-admin" {
+		t.Fatalf("expected same user id, got %q", repo.users[0].ID)
+	}
+}
+
+func TestEnsureBootstrapAdminCreatesWhenOnlyInactiveAdminDifferentEmail(t *testing.T) {
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "inactive-admin",
+			Email:     "old-admin@example.com",
+			Role:      "admin",
+			Active:    false,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "admin@example.com",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
+	}
+	if len(repo.users) != 2 {
+		t.Fatalf("expected new bootstrap admin alongside inactive row, got %d", len(repo.users))
+	}
+	found := false
+	for _, u := range repo.users {
+		if u.Email == "admin@example.com" && u.Role == "admin" && u.Active {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected active bootstrap admin with configured email")
 	}
 }
 

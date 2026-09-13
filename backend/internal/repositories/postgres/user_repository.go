@@ -157,8 +157,10 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 // bootstrapAdminAdvisoryLock is a fixed key for serializing first-admin inserts.
 const bootstrapAdminAdvisoryLock int64 = 0x73746172 // "star"
 
-// CreateAdminIfAbsent inserts the user only when no admin exists.
-// Uses a transaction advisory lock so concurrent startups cannot both succeed.
+// CreateAdminIfAbsent inserts or reactivates an admin only when no active admin
+// exists. Uses a transaction advisory lock so concurrent startups cannot both succeed.
+// Inactive-only admin rows do not block recovery: matching bootstrap email is
+// reactivated/promoted; otherwise a new admin is inserted.
 func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.User) (bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -170,15 +172,43 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 		return false, fmt.Errorf("failed to acquire bootstrap admin lock: %w", err)
 	}
 
-	var adminExists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin')`).Scan(&adminExists); err != nil {
-		return false, fmt.Errorf("failed to check for existing admin: %w", err)
+	var activeAdminExists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin' AND active = true)
+	`).Scan(&activeAdminExists); err != nil {
+		return false, fmt.Errorf("failed to check for existing active admin: %w", err)
 	}
-	if adminExists {
+	if activeAdminExists {
 		if err := tx.Commit(); err != nil {
 			return false, fmt.Errorf("failed to commit bootstrap admin transaction: %w", err)
 		}
 		return false, nil
+	}
+
+	var existingID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id FROM users WHERE email = $1 FOR UPDATE
+	`, user.Email).Scan(&existingID)
+	if err == nil {
+		now := time.Now()
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE users
+			SET password = $1, first_name = $2, last_name = $3, role = 'admin', active = true, updated_at = $4
+			WHERE id = $5
+		`, user.Password, user.FirstName, user.LastName, now, existingID); err != nil {
+			return false, fmt.Errorf("failed to reactivate bootstrap admin: %w", err)
+		}
+		user.ID = existingID
+		user.Role = "admin"
+		user.Active = true
+		user.UpdatedAt = now
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("failed to commit bootstrap admin transaction: %w", err)
+		}
+		return true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("failed to look up bootstrap admin email: %w", err)
 	}
 
 	query := `
@@ -205,8 +235,9 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	return true, nil
 }
 
-// Update updates an existing user. Admin demotions are checked atomically under
-// row locks so concurrent sole-admin demotions cannot both succeed.
+// Update updates an existing user. Losing the last active admin (demotion or
+// deactivation) is rejected atomically. Admin locks are always acquired in
+// ORDER BY id before mutating, avoiding deadlocks between concurrent demotions.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -215,38 +246,77 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	defer func() { _ = tx.Rollback() }()
 
 	var currentRole string
+	var currentActive bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT role FROM users WHERE id = $1 FOR UPDATE
-	`, user.ID).Scan(&currentRole)
+		SELECT role, active FROM users WHERE id = $1
+	`, user.ID).Scan(&currentRole, &currentActive)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("user not found")
 		}
-		return fmt.Errorf("failed to lock user for update: %w", err)
+		return fmt.Errorf("failed to load user for update: %w", err)
 	}
 
-	if currentRole == "admin" && user.Role != "admin" {
-		// Lock every admin row so concurrent demotions serialize on the same set.
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM users WHERE role = 'admin' FOR UPDATE`)
+	// Serialize admin capability loss with consistent lock order (ORDER BY id)
+	// before any exclusive target lock, so concurrent demotions cannot deadlock.
+	needsAdminLockSet := currentRole == "admin" && (user.Role != "admin" || !user.Active)
+
+	if needsAdminLockSet {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
+		`)
 		if err != nil {
 			return fmt.Errorf("failed to lock admin users: %w", err)
 		}
-		adminCount := 0
+		activeAdminCount := 0
+		targetSeen := false
+		targetActive := false
 		for rows.Next() {
 			var id string
-			if err := rows.Scan(&id); err != nil {
+			var active bool
+			if err := rows.Scan(&id, &active); err != nil {
 				rows.Close()
-				return fmt.Errorf("failed to scan admin id: %w", err)
+				return fmt.Errorf("failed to scan admin row: %w", err)
 			}
-			adminCount++
+			if active {
+				activeAdminCount++
+			}
+			if id == user.ID {
+				targetSeen = true
+				targetActive = active
+			}
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			return fmt.Errorf("error iterating admin users: %w", err)
 		}
 		rows.Close()
-		if adminCount <= 1 {
+
+		losingUsableAdmin := targetSeen && targetActive && (user.Role != "admin" || !user.Active)
+		if losingUsableAdmin && activeAdminCount <= 1 {
 			return domain.ErrCannotDemoteLastAdmin
+		}
+
+		if !targetSeen {
+			err = tx.QueryRowContext(ctx, `
+				SELECT role, active FROM users WHERE id = $1 FOR UPDATE
+			`, user.ID).Scan(&currentRole, &currentActive)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("user not found")
+				}
+				return fmt.Errorf("failed to lock user for update: %w", err)
+			}
+		}
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
+		`, user.ID).Scan(&currentRole, &currentActive)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("user not found")
+			}
+			return fmt.Errorf("failed to lock user for update: %w", err)
 		}
 	}
 

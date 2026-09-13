@@ -2,9 +2,9 @@ package services
 
 import (
 	"context"
-	"net/mail"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
 	"github.com/majiayu000/cc-starship/internal/infrastructure/auth"
@@ -13,6 +13,9 @@ import (
 	"github.com/majiayu000/cc-starship/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// loginEmailValidator matches Gin's binding:"email" rules used by LoginRequest.
+var loginEmailValidator = validator.New()
 
 // AuthService implements the authentication service
 type AuthService struct {
@@ -73,14 +76,11 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.Boots
 		return errors.NewBadRequest("Bootstrap admin requires both email and password", nil)
 	}
 
-	// Require a plain login email matching LoginRequest binding:"email".
-	// mail.ParseAddress accepts display-name forms like `Admin <a@b.com>` which
-	// cannot be typed into the HTML email input or pass gin email validation.
-	parsed, err := mail.ParseAddress(email)
-	if err != nil || parsed.Name != "" || !strings.EqualFold(parsed.Address, email) {
+	// Use the same validator as LoginRequest binding:"email" (go-playground).
+	// net/mail.ParseAddress is looser and accepts values login rejects (e.g. admin@-example.com).
+	if err := loginEmailValidator.Var(email, "email"); err != nil {
 		return errors.NewBadRequest("Invalid bootstrap admin email address", err)
 	}
-	email = parsed.Address
 
 	firstName := strings.TrimSpace(cfg.FirstName)
 	if firstName == "" {

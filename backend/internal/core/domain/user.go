@@ -8,8 +8,8 @@ import (
 )
 
 // ErrCannotDemoteLastAdmin is returned when an update would leave the system
-// with no administrator.
-var ErrCannotDemoteLastAdmin = errors.New("cannot demote the sole administrator")
+// with no active administrator (role demotion or deactivation).
+var ErrCannotDemoteLastAdmin = errors.New("cannot demote or deactivate the sole active administrator")
 
 // User represents a user in the system
 type User struct {
