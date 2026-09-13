@@ -25,6 +25,12 @@ type User struct {
 	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// RoleProvided / ActiveProvided mark intentional privileged-field writes for Update.
+	// When false, the repository preserves Role/Active observed under row lock so a
+	// concurrent admin deactivate/role change is not overwritten by a stale pre-lock read.
+	RoleProvided   bool `json:"-"`
+	ActiveProvided bool `json:"-"`
 }
 
 // NewUser creates a new user with default values

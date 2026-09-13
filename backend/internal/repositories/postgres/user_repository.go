@@ -314,10 +314,26 @@ func lockAdminsThenTarget(ctx context.Context, tx *sql.Tx, targetID string) (rol
 	return role, active, hasPassword, activeAdminCount, nil
 }
 
+// resolvePrivilegedUpdateFields returns Role/Active to persist after row locks.
+// Omitted privileged fields keep the locked DB values so concurrent admin
+// deactivate/role changes are not overwritten by a stale pre-lock profile read.
+func resolvePrivilegedUpdateFields(lockedRole string, lockedActive bool, user *domain.User) (role string, active bool) {
+	role = lockedRole
+	active = lockedActive
+	if user.RoleProvided {
+		role = user.Role
+	}
+	if user.ActiveProvided {
+		active = user.Active
+	}
+	return role, active
+}
+
 // Update updates an existing user. Losing the last active admin (demotion or
 // deactivation) is rejected atomically. Admin locks are always acquired in
 // ORDER BY id before classifying the target, so concurrent promotions cannot
-// bypass the last-active-admin guard.
+// bypass the last-active-admin guard. Role/Active are taken from the locked row
+// unless RoleProvided/ActiveProvided mark an intentional privileged write.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -330,8 +346,10 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		return err
 	}
 
+	role, active := resolvePrivilegedUpdateFields(currentRole, currentActive, user)
+
 	// Passwordless admins are not usable; demoting them must not trip the guard.
-	losingUsableAdmin := currentRole == "admin" && currentActive && currentHasPassword && (user.Role != "admin" || !user.Active)
+	losingUsableAdmin := currentRole == "admin" && currentActive && currentHasPassword && (role != "admin" || !active)
 	if losingUsableAdmin && activeAdminCount <= 1 {
 		return domain.ErrCannotDemoteLastAdmin
 	}
@@ -345,8 +363,8 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		user.Email,
 		user.FirstName,
 		user.LastName,
-		user.Role,
-		user.Active,
+		role,
+		active,
 		now,
 		user.ID,
 	)
@@ -366,6 +384,8 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		return fmt.Errorf("failed to commit user update: %w", err)
 	}
 
+	user.Role = role
+	user.Active = active
 	user.UpdatedAt = now
 	return nil
 }

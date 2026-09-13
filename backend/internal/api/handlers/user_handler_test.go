@@ -55,8 +55,16 @@ func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error
 	if !ok {
 		return errNotFound
 	}
+	role := existing.Role
+	active := existing.Active
+	if user.RoleProvided {
+		role = user.Role
+	}
+	if user.ActiveProvided {
+		active = user.Active
+	}
 	// Mirror repository last-active-admin invariant for handler unit tests.
-	losingUsableAdmin := existing.Role == "admin" && existing.Active && existing.Password != "" && (user.Role != "admin" || !user.Active)
+	losingUsableAdmin := existing.Role == "admin" && existing.Active && existing.Password != "" && (role != "admin" || !active)
 	if losingUsableAdmin {
 		activeAdminCount := 0
 		for _, u := range m.users {
@@ -68,6 +76,8 @@ func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error
 			return errors.NewForbidden("Cannot demote the sole administrator", domain.ErrCannotDemoteLastAdmin)
 		}
 	}
+	user.Role = role
+	user.Active = active
 	m.updated = user
 	m.users[user.ID] = user
 	return nil
@@ -249,6 +259,9 @@ func TestUpdateUser_AdminCanUpdateOtherUserIncludingRole(t *testing.T) {
 	if svc.updated.Active {
 		t.Fatal("expected admin to set active=false")
 	}
+	if !svc.updated.RoleProvided || !svc.updated.ActiveProvided {
+		t.Fatal("expected RoleProvided and ActiveProvided when admin supplies both")
+	}
 	if svc.updated.FirstName != "Promoted" {
 		t.Fatalf("expected firstName Promoted, got %q", svc.updated.FirstName)
 	}
@@ -279,6 +292,66 @@ func TestUpdateUser_AdminOmittingActivePreservesExistingActive(t *testing.T) {
 	}
 	if !svc.updated.Active {
 		t.Fatal("expected active to remain true when omitted from admin update")
+	}
+	if !svc.updated.RoleProvided {
+		t.Fatal("expected RoleProvided when admin supplies role")
+	}
+	if svc.updated.ActiveProvided {
+		t.Fatal("expected ActiveProvided=false when active omitted so repo keeps locked active")
+	}
+}
+
+func TestUpdateUser_ProfileOnlyDoesNotMarkPrivilegedFieldsProvided(t *testing.T) {
+	target := newTestUser("user-1", "user@example.com", "user", true)
+	svc := &mockUserService{users: map[string]*domain.User{"user-1": target}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	caller := newTestUser("user-1", "user@example.com", "user", true)
+	router := setupUpdateRouter(handler, caller)
+
+	body := `{"email":"user@example.com","firstName":"Updated","lastName":"Name"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/user-1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.updated == nil {
+		t.Fatal("expected user to be updated")
+	}
+	if svc.updated.RoleProvided || svc.updated.ActiveProvided {
+		t.Fatalf("profile-only update must not mark privileged fields provided (role=%v active=%v)",
+			svc.updated.RoleProvided, svc.updated.ActiveProvided)
+	}
+}
+
+func TestUpdateUser_AdminOmittingPrivilegedFieldsDoesNotMarkThemProvided(t *testing.T) {
+	// Stale pre-lock Role/Active must not be treated as intentional writes.
+	target := newTestUser("user-2", "other@example.com", "user", true)
+	svc := &mockUserService{users: map[string]*domain.User{"user-2": target}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	caller := newTestUser("admin-1", "admin@example.com", "admin", true)
+	router := setupUpdateRouter(handler, caller)
+
+	body := `{"email":"other@example.com","firstName":"Renamed","lastName":"User"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/user-2", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.updated == nil {
+		t.Fatal("expected user to be updated")
+	}
+	if svc.updated.RoleProvided || svc.updated.ActiveProvided {
+		t.Fatalf("omitted privileged fields must not be marked provided (role=%v active=%v)",
+			svc.updated.RoleProvided, svc.updated.ActiveProvided)
+	}
+	if svc.updated.Role != "user" || !svc.updated.Active {
+		t.Fatalf("expected locked role/active preserved, got role=%q active=%v", svc.updated.Role, svc.updated.Active)
 	}
 }
 

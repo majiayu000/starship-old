@@ -160,12 +160,19 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	user.Email = req.Email
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
+	// Do not treat pre-lock Role/Active as intentional writes. Only mark provided
+	// when an admin explicitly supplies them; repository Update then preserves
+	// locked values for omitted privileged fields (avoids TOCTOU overwrite).
+	user.RoleProvided = false
+	user.ActiveProvided = false
 	if isAdmin {
 		if req.Role != "" {
 			user.Role = req.Role
+			user.RoleProvided = true
 		}
 		if req.Active != nil {
 			user.Active = *req.Active
+			user.ActiveProvided = true
 		}
 	}
 
