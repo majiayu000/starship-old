@@ -95,10 +95,9 @@ func RegisterRoutes(
 			// Group for review-related endpoints
 			review := api.Group("/review")
 			// Apply auth middleware if auth service is available
-			// 临时注释掉认证中间件
-			// if authService != nil {
-			// 	review.Use(authMiddleware)
-			// }
+			if authService != nil {
+				review.Use(authMiddleware)
+			}
 			{
 				// Get available data sources
 				review.GET("/sources", reviewHandler.GetDataSources)
@@ -115,8 +114,12 @@ func RegisterRoutes(
 					// Get a specific item
 					dataSource.GET("/items/:id", reviewHandler.GetByID)
 
-					// Review an item (update status)
-					dataSource.POST("/items/:id/review", reviewHandler.ReviewItem)
+					// Review an item (update status) — mutating write requires admin when auth is enabled
+					if authService != nil {
+						dataSource.POST("/items/:id/review", adminRoleMiddleware, reviewHandler.ReviewItem)
+					} else {
+						dataSource.POST("/items/:id/review", reviewHandler.ReviewItem)
+					}
 				}
 			}
 		}
