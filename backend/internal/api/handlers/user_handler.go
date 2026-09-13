@@ -26,13 +26,14 @@ func NewUserHandler(userService ports.UserService, logger *logger.Logger) *UserH
 	}
 }
 
-// UserRequest represents the request body for user operations
+// UserRequest represents the request body for user operations.
+// Active is a pointer so JSON omission leaves the existing (or default) value unchanged.
 type UserRequest struct {
 	Email     string `json:"email" binding:"required,email"`
 	FirstName string `json:"firstName" binding:"required"`
 	LastName  string `json:"lastName" binding:"required"`
 	Role      string `json:"role"`
-	Active    bool   `json:"active"`
+	Active    *bool  `json:"active"`
 }
 
 // GetUsers handles the request to get all users
@@ -82,7 +83,9 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	if req.Role != "" {
 		user.Role = req.Role
 	}
-	user.Active = req.Active
+	if req.Active != nil {
+		user.Active = *req.Active
+	}
 
 	// Save user
 	if err := h.userService.CreateUser(c, user); err != nil {
@@ -135,7 +138,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		if req.Role != "" {
 			user.Role = req.Role
 		}
-		user.Active = req.Active
+		if req.Active != nil {
+			user.Active = *req.Active
+		}
 	}
 
 	// Last-admin demotion is rejected atomically in the repository/service layer.

@@ -248,6 +248,34 @@ func TestUpdateUser_AdminCanUpdateOtherUserIncludingRole(t *testing.T) {
 	}
 }
 
+func TestUpdateUser_AdminOmittingActivePreservesExistingActive(t *testing.T) {
+	target := newTestUser("user-2", "other@example.com", "user", true)
+	svc := &mockUserService{users: map[string]*domain.User{"user-2": target}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	caller := newTestUser("admin-1", "admin@example.com", "admin", true)
+	router := setupUpdateRouter(handler, caller)
+
+	// Omit active entirely — must not coerce to false and deactivate the user.
+	body := `{"email":"other@example.com","firstName":"Renamed","lastName":"User","role":"user"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/user-2", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.updated == nil {
+		t.Fatal("expected user to be updated")
+	}
+	if svc.updated.FirstName != "Renamed" {
+		t.Fatalf("expected firstName Renamed, got %q", svc.updated.FirstName)
+	}
+	if !svc.updated.Active {
+		t.Fatal("expected active to remain true when omitted from admin update")
+	}
+}
+
 func TestUpdateUser_RejectsSoleAdminSelfDemotion(t *testing.T) {
 	admin := newTestUser("admin-1", "admin@example.com", "admin", true)
 	svc := &mockUserService{users: map[string]*domain.User{"admin-1": admin}}
@@ -309,6 +337,9 @@ func TestUpdateUser_AllowsAdminDemotionWhenAnotherAdminExists(t *testing.T) {
 	}
 	if svc.updated == nil || svc.updated.Role != "user" {
 		t.Fatalf("expected demotion when another admin exists, updated=%v", svc.updated)
+	}
+	if !svc.updated.Active {
+		t.Fatal("expected active to remain true when omitted during demotion")
 	}
 }
 
