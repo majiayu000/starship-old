@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/majiayu000/cc-starship/internal/core/domain"
@@ -153,9 +154,15 @@ func (h *ReviewHandler) ReviewItem(c *gin.Context) {
 	err := h.service.ReviewItem(c.Request.Context(), dataSource, originalID, update)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("Error updating review status: %v", err))
+		// Do not return err.Error() to clients — it can leak SQL/table internals.
+		if strings.Contains(err.Error(), "no item found with original_id") {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": fmt.Sprintf("Item with ID %s not found", originalID),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to update review status",
-			"details": err.Error(), // 添加详细错误信息
+			"error": "Failed to update review status",
 		})
 		return
 	}
