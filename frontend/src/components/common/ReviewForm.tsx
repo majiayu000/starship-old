@@ -13,7 +13,7 @@ interface ReviewFormProps {
 }
 
 const ReviewForm: React.FC<ReviewFormProps> = ({ item, onSubmit }) => {
-  const { isAuthenticated, isAdmin, authRequired, canSubmitReview } = useAuthSession();
+  const { isAuthenticated, authRequired, canSubmitReview } = useAuthSession();
   const [status, setStatus] = useState<string>(item.reviewStatus || 'pending');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 

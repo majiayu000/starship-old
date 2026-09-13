@@ -10,6 +10,17 @@ function isUnauthorized(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 401;
 }
 
+function isForbidden(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 403;
+}
+
+/** Clear cached session when the token is rejected or the role no longer authorizes. */
+function clearSessionOnAuthFailure(error: unknown, token: string | null): void {
+  if (isUnauthorized(error) || isForbidden(error)) {
+    clearAuthSessionIfCurrent(token);
+  }
+}
+
 function authHeadersForRequest(): { headers: Record<string, string>; token: string | null } {
   const token = getAuthToken();
   return { headers: authHeaders(), token };
@@ -25,8 +36,8 @@ export const reviewApi = {
       });
       return response.data;
     } catch (error) {
-      if (isUnauthorized(error)) {
-        clearAuthSessionIfCurrent(token);
+      if (isUnauthorized(error) || isForbidden(error)) {
+        clearSessionOnAuthFailure(error, token);
         throw new Error('Authentication required to load review sources');
       }
       console.error('获取数据源失败:', error);
@@ -44,8 +55,8 @@ export const reviewApi = {
       });
       return response.data;
     } catch (error) {
-      if (isUnauthorized(error)) {
-        clearAuthSessionIfCurrent(token);
+      if (isUnauthorized(error) || isForbidden(error)) {
+        clearSessionOnAuthFailure(error, token);
         throw new Error('Authentication required to load filter options');
       }
       console.error('获取过滤选项失败:', error);
@@ -71,8 +82,8 @@ export const reviewApi = {
       });
       return response.data;
     } catch (error) {
-      if (isUnauthorized(error)) {
-        clearAuthSessionIfCurrent(token);
+      if (isUnauthorized(error) || isForbidden(error)) {
+        clearSessionOnAuthFailure(error, token);
         throw new Error('Authentication required to load review items');
       }
       console.error('获取项目列表失败:', error);
@@ -101,8 +112,8 @@ export const reviewApi = {
       return response.data;
     } catch (error) {
       console.error('获取项目详情失败:', error);
-      if (isUnauthorized(error)) {
-        clearAuthSessionIfCurrent(token);
+      if (isUnauthorized(error) || isForbidden(error)) {
+        clearSessionOnAuthFailure(error, token);
         throw new Error('Authentication required to load review item');
       }
       throw new Error('获取项目详情失败');
@@ -143,9 +154,13 @@ export const reviewApi = {
         console.error('响应数据:', error.response.data);
         console.error('响应状态:', error.response.status);
       }
-      if (isUnauthorized(error)) {
-        clearAuthSessionIfCurrent(token);
-        throw new Error('Authentication required to submit a review');
+      if (isUnauthorized(error) || isForbidden(error)) {
+        clearSessionOnAuthFailure(error, token);
+        throw new Error(
+          isForbidden(error)
+            ? 'Authorization changed; please sign in again to refresh your role'
+            : 'Authentication required to submit a review'
+        );
       }
       throw new Error(error.response?.data?.error || '提交审核失败');
     }

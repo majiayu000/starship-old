@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import NavigationHeader from "@/components/common/NavigationHeader";
+import { AuthSessionProvider } from "@/hooks/useAuthSession";
 import { Toaster } from 'sonner';
 
 const geistSans = Geist({
@@ -29,11 +30,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}
       >
-        <NavigationHeader />
-        <main className="flex-1">
-          {children}
-        </main>
-        <Toaster position="top-right" richColors />
+        <AuthSessionProvider>
+          <NavigationHeader />
+          <main className="flex-1">
+            {children}
+          </main>
+          <Toaster position="top-right" richColors />
+        </AuthSessionProvider>
       </body>
     </html>
   );

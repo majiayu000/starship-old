@@ -17,7 +17,7 @@ import { useAuthSession } from '@/hooks/useAuthSession';
 export default function QuestionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { authEpoch, isAuthenticated, canAccessReview } = useAuthSession();
+  const { authEpoch, isAuthenticated, canAccessReview, authStatusLoaded, authRequired } = useAuthSession();
   const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<keyof DataSourceItemType>('sat_oneprep');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
@@ -271,14 +271,26 @@ export default function QuestionsPage() {
     };
   }, [strategy, authEpoch, isAuthenticated, canAccessReview, items, filters.status]);
 
-  // 初始加载显示骨架屏
-  if (loading && items.length === 0) {
+  // 初始加载显示骨架屏（含等待 auth/status，避免匿名态误报“全部已审核”）
+  if ((!authStatusLoaded || loading) && items.length === 0) {
     return (
       <div className="container mx-auto p-6">
         <div className="space-y-2">
           <Skeleton className="h-8 w-full" />
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-32 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatusLoaded && !canAccessReview) {
+    return (
+      <div className="container mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-6">题目审核</h1>
+        <div className="p-12 text-center text-gray-600 bg-gray-50 rounded-lg space-y-2">
+          <p>{authRequired ? '请先登录后再查看题目审核数据。' : '当前无法访问题目审核数据。'}</p>
+          <p className="text-sm text-gray-500">登录后将自动加载待审核题目。</p>
         </div>
       </div>
     );

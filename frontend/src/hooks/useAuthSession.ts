@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import {
+  createContext,
+  createElement,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   AUTH_CHANGE_EVENT,
   fetchAuthEnabled,
@@ -69,8 +76,10 @@ function readSession(
   };
 }
 
-/** Subscribe to login/logout so protected pages can reload or clear state. */
-export function useAuthSession(): AuthSessionState {
+const AuthSessionContext = createContext<AuthSessionState | null>(null);
+
+/** Single shared auth session so pages/forms do not each probe /auth/status. */
+function useAuthSessionState(): AuthSessionState {
   // Always start anonymous so SSR markup matches the first client render.
   const [session, setSession] = useState<AuthSessionState>(() => ({
     authEpoch: 0,
@@ -115,4 +124,18 @@ export function useAuthSession(): AuthSessionState {
   }, []);
 
   return session;
+}
+
+export function AuthSessionProvider({ children }: { children: ReactNode }) {
+  const session = useAuthSessionState();
+  return createElement(AuthSessionContext.Provider, { value: session }, children);
+}
+
+/** Subscribe to the shared auth session from AuthSessionProvider. */
+export function useAuthSession(): AuthSessionState {
+  const shared = useContext(AuthSessionContext);
+  if (!shared) {
+    throw new Error('useAuthSession must be used within AuthSessionProvider');
+  }
+  return shared;
 }

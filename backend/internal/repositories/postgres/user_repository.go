@@ -235,9 +235,58 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	return true, nil
 }
 
+// lockAdminsThenTarget locks every admin row in ORDER BY id, then the target
+// if it is not already in that set. Role/active classification for the last-
+// active-admin invariant must use these locked values only — never a prior
+// unlocked peek — so a concurrent promotion cannot demote the new sole admin.
+func lockAdminsThenTarget(ctx context.Context, tx *sql.Tx, targetID string) (role string, active bool, activeAdminCount int, err error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
+	`)
+	if err != nil {
+		return "", false, 0, fmt.Errorf("failed to lock admin users: %w", err)
+	}
+	targetSeen := false
+	for rows.Next() {
+		var id string
+		var adminActive bool
+		if err := rows.Scan(&id, &adminActive); err != nil {
+			rows.Close()
+			return "", false, 0, fmt.Errorf("failed to scan admin row: %w", err)
+		}
+		if adminActive {
+			activeAdminCount++
+		}
+		if id == targetID {
+			targetSeen = true
+			role = "admin"
+			active = adminActive
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return "", false, 0, fmt.Errorf("error iterating admin users: %w", err)
+	}
+	rows.Close()
+
+	if !targetSeen {
+		err = tx.QueryRowContext(ctx, `
+			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
+		`, targetID).Scan(&role, &active)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", false, 0, fmt.Errorf("user not found")
+			}
+			return "", false, 0, fmt.Errorf("failed to lock user: %w", err)
+		}
+	}
+	return role, active, activeAdminCount, nil
+}
+
 // Update updates an existing user. Losing the last active admin (demotion or
 // deactivation) is rejected atomically. Admin locks are always acquired in
-// ORDER BY id before mutating, avoiding deadlocks between concurrent demotions.
+// ORDER BY id before classifying the target, so concurrent promotions cannot
+// bypass the last-active-admin guard.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -245,79 +294,14 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var currentRole string
-	var currentActive bool
-	err = tx.QueryRowContext(ctx, `
-		SELECT role, active FROM users WHERE id = $1
-	`, user.ID).Scan(&currentRole, &currentActive)
+	currentRole, currentActive, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, user.ID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("user not found")
-		}
-		return fmt.Errorf("failed to load user for update: %w", err)
+		return err
 	}
 
-	// Serialize admin capability loss with consistent lock order (ORDER BY id)
-	// before any exclusive target lock, so concurrent demotions cannot deadlock.
-	needsAdminLockSet := currentRole == "admin" && (user.Role != "admin" || !user.Active)
-
-	if needsAdminLockSet {
-		rows, err := tx.QueryContext(ctx, `
-			SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to lock admin users: %w", err)
-		}
-		activeAdminCount := 0
-		targetSeen := false
-		targetActive := false
-		for rows.Next() {
-			var id string
-			var active bool
-			if err := rows.Scan(&id, &active); err != nil {
-				rows.Close()
-				return fmt.Errorf("failed to scan admin row: %w", err)
-			}
-			if active {
-				activeAdminCount++
-			}
-			if id == user.ID {
-				targetSeen = true
-				targetActive = active
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return fmt.Errorf("error iterating admin users: %w", err)
-		}
-		rows.Close()
-
-		losingUsableAdmin := targetSeen && targetActive && (user.Role != "admin" || !user.Active)
-		if losingUsableAdmin && activeAdminCount <= 1 {
-			return domain.ErrCannotDemoteLastAdmin
-		}
-
-		if !targetSeen {
-			err = tx.QueryRowContext(ctx, `
-				SELECT role, active FROM users WHERE id = $1 FOR UPDATE
-			`, user.ID).Scan(&currentRole, &currentActive)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("user not found")
-				}
-				return fmt.Errorf("failed to lock user for update: %w", err)
-			}
-		}
-	} else {
-		err = tx.QueryRowContext(ctx, `
-			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
-		`, user.ID).Scan(&currentRole, &currentActive)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("user not found")
-			}
-			return fmt.Errorf("failed to lock user for update: %w", err)
-		}
+	losingUsableAdmin := currentRole == "admin" && currentActive && (user.Role != "admin" || !user.Active)
+	if losingUsableAdmin && activeAdminCount <= 1 {
+		return domain.ErrCannotDemoteLastAdmin
 	}
 
 	now := time.Now()
@@ -355,7 +339,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 }
 
 // Delete deletes a user. Deleting the last active admin is rejected atomically.
-// Admin locks are acquired in ORDER BY id before mutating, matching Update.
+// Admin locks are acquired before classifying the target, matching Update.
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -363,74 +347,13 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var currentRole string
-	var currentActive bool
-	err = tx.QueryRowContext(ctx, `
-		SELECT role, active FROM users WHERE id = $1
-	`, id).Scan(&currentRole, &currentActive)
+	currentRole, currentActive, activeAdminCount, err := lockAdminsThenTarget(ctx, tx, id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("user not found")
-		}
-		return fmt.Errorf("failed to load user for delete: %w", err)
+		return err
 	}
 
-	if currentRole == "admin" {
-		rows, err := tx.QueryContext(ctx, `
-			SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to lock admin users: %w", err)
-		}
-		activeAdminCount := 0
-		targetSeen := false
-		targetActive := false
-		for rows.Next() {
-			var adminID string
-			var active bool
-			if err := rows.Scan(&adminID, &active); err != nil {
-				rows.Close()
-				return fmt.Errorf("failed to scan admin row: %w", err)
-			}
-			if active {
-				activeAdminCount++
-			}
-			if adminID == id {
-				targetSeen = true
-				targetActive = active
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return fmt.Errorf("error iterating admin users: %w", err)
-		}
-		rows.Close()
-
-		if targetSeen && targetActive && activeAdminCount <= 1 {
-			return domain.ErrCannotDemoteLastAdmin
-		}
-
-		if !targetSeen {
-			err = tx.QueryRowContext(ctx, `
-				SELECT role, active FROM users WHERE id = $1 FOR UPDATE
-			`, id).Scan(&currentRole, &currentActive)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("user not found")
-				}
-				return fmt.Errorf("failed to lock user for delete: %w", err)
-			}
-		}
-	} else {
-		err = tx.QueryRowContext(ctx, `
-			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
-		`, id).Scan(&currentRole, &currentActive)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("user not found")
-			}
-			return fmt.Errorf("failed to lock user for delete: %w", err)
-		}
+	if currentRole == "admin" && currentActive && activeAdminCount <= 1 {
+		return domain.ErrCannotDemoteLastAdmin
 	}
 
 	result, err := tx.ExecContext(ctx, `
