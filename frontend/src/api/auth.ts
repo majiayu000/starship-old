@@ -178,6 +178,10 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
       if (status.role && getAuthToken() === requestToken) {
         // Silent write: callers re-read localStorage and decide whether to bump epoch.
         updateCachedAuthRole(status.role, { notify: false });
+      } else if (requestToken && !status.role && getAuthToken() === requestToken) {
+        // Token was sent but server omitted role (expired JWT, deactivated user,
+        // etc.). Clear the stale session so privileged UI does not linger.
+        clearAuthSessionIfCurrent(requestToken);
       }
       // Drop the role from the returned status when the session moved on so
       // callers do not apply a stale role from an overlapping probe.

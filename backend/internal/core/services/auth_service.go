@@ -93,6 +93,11 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.Boots
 		return errors.NewBadRequest("Invalid bootstrap admin email address", err)
 	}
 
+	// Match RegisterRequest / CreateUser password policy (binding:"min=6").
+	if len(password) < 6 {
+		return errors.NewBadRequest("Bootstrap admin password must be at least 6 characters", nil)
+	}
+
 	firstName := strings.TrimSpace(cfg.FirstName)
 	if firstName == "" {
 		firstName = "Admin"

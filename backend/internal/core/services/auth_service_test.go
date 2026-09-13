@@ -238,6 +238,22 @@ func TestEnsureBootstrapAdminRejectsInvalidEmail(t *testing.T) {
 	}
 }
 
+func TestEnsureBootstrapAdminRejectsShortPassword(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "admin@example.com",
+		Password: "short",
+	})
+	if err == nil {
+		t.Fatal("expected error for bootstrap password shorter than 6 characters")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users inserted for short password, got %d", len(repo.users))
+	}
+}
+
 func TestEnsureBootstrapAdminRejectsDisplayNameEmail(t *testing.T) {
 	repo := &memoryUserRepo{}
 	svc := newTestAuthService(repo)
