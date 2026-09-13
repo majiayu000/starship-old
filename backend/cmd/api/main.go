@@ -71,11 +71,8 @@ func main() {
 	var authService ports.AuthService
 	var reviewService ports.ReviewService
 
-	// Initialize user and auth services only if PostgreSQL is available
+	// Initialize user/review services when PostgreSQL is available; JWT/auth only when enabled.
 	if dbManager.PostgreSQL != nil {
-		// Create JWT service
-		jwtService := auth.NewJWTService(cfg)
-
 		// Create repositories
 		userRepo := postgres.NewUserRepository(dbManager.PostgreSQL, l)
 
@@ -85,20 +82,39 @@ func main() {
 		// Create review service
 		reviewService = services.NewReviewService(reviewRepo, l)
 
-		// Create services
+		// Create user service (auth-independent)
 		userService = services.NewUserService(userRepo, l)
-		authService = services.NewAuthService(userRepo, jwtService, l)
 
-		l.LogBusiness(
-			logger.LogLevelInfo,
-			"system_init",
-			"system",
-			"auth",
-			map[string]interface{}{
-				"service": "PostgreSQL",
-				"status":  "initialized",
-			},
-		)
+		if cfg.Auth.Enabled {
+			// JWT/auth must not initialize with an empty/placeholder key when auth is off.
+			jwtService := auth.NewJWTService(cfg)
+			authService = services.NewAuthService(userRepo, jwtService, l)
+
+			l.LogBusiness(
+				logger.LogLevelInfo,
+				"system_init",
+				"system",
+				"auth",
+				map[string]interface{}{
+					"service": "PostgreSQL",
+					"status":  "initialized",
+				},
+			)
+		} else {
+			l.Warn("Auth is disabled. JWT signing, /auth routes, and JWT middleware will not be initialized.")
+
+			l.LogBusiness(
+				logger.LogLevelWarn,
+				"system_init",
+				"system",
+				"auth",
+				map[string]interface{}{
+					"service": "auth",
+					"status":  "disabled",
+					"reason":  "auth.enabled=false",
+				},
+			)
+		}
 	} else {
 		l.Warn("PostgreSQL is not initialized. User authentication features will be disabled.")
 
