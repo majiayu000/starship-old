@@ -73,7 +73,24 @@ func (m *mockUserService) UpdateUser(_ context.Context, user *domain.User) error
 	return nil
 }
 
-func (m *mockUserService) DeleteUser(context.Context, string) error {
+func (m *mockUserService) DeleteUser(_ context.Context, id string) error {
+	existing, ok := m.users[id]
+	if !ok {
+		return errNotFound
+	}
+	// Mirror repository last-active-admin invariant for handler unit tests.
+	if existing.Role == "admin" && existing.Active {
+		activeAdminCount := 0
+		for _, u := range m.users {
+			if u != nil && u.Role == "admin" && u.Active {
+				activeAdminCount++
+			}
+		}
+		if activeAdminCount <= 1 {
+			return errors.NewForbidden("Cannot delete the sole active administrator", domain.ErrCannotDemoteLastAdmin)
+		}
+	}
+	delete(m.users, id)
 	return nil
 }
 
@@ -105,6 +122,18 @@ func setupUpdateRouter(handler *UserHandler, caller *domain.User) *gin.Engine {
 			c.Set("user", caller)
 		}
 		handler.UpdateUser(c)
+	})
+	return r
+}
+
+func setupDeleteRouter(handler *UserHandler, caller *domain.User) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.DELETE("/api/v1/users/:id", func(c *gin.Context) {
+		if caller != nil {
+			c.Set("user", caller)
+		}
+		handler.DeleteUser(c)
 	})
 	return r
 }
@@ -280,5 +309,45 @@ func TestUpdateUser_AllowsAdminDemotionWhenAnotherAdminExists(t *testing.T) {
 	}
 	if svc.updated == nil || svc.updated.Role != "user" {
 		t.Fatalf("expected demotion when another admin exists, updated=%v", svc.updated)
+	}
+}
+
+func TestDeleteUser_RejectsSoleActiveAdminDeletion(t *testing.T) {
+	admin := newTestUser("admin-1", "admin@example.com", "admin", true)
+	svc := &mockUserService{users: map[string]*domain.User{"admin-1": admin}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	router := setupDeleteRouter(handler, admin)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/admin-1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := svc.users["admin-1"]; !ok {
+		t.Fatal("expected sole active admin deletion to be rejected")
+	}
+}
+
+func TestDeleteUser_AllowsAdminDeletionWhenAnotherActiveAdminExists(t *testing.T) {
+	admin1 := newTestUser("admin-1", "admin1@example.com", "admin", true)
+	admin2 := newTestUser("admin-2", "admin2@example.com", "admin", true)
+	svc := &mockUserService{users: map[string]*domain.User{
+		"admin-1": admin1,
+		"admin-2": admin2,
+	}}
+	handler := NewUserHandler(svc, &logger.Logger{})
+	router := setupDeleteRouter(handler, admin1)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/admin-1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := svc.users["admin-1"]; ok {
+		t.Fatal("expected admin-1 to be deleted when another active admin exists")
 	}
 }

@@ -354,14 +354,89 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
-// Delete deletes a user
+// Delete deletes a user. Deleting the last active admin is rejected atomically.
+// Admin locks are acquired in ORDER BY id before mutating, matching Update.
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	query := `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin user delete transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var currentRole string
+	var currentActive bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT role, active FROM users WHERE id = $1
+	`, id).Scan(&currentRole, &currentActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("failed to load user for delete: %w", err)
+	}
+
+	if currentRole == "admin" {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, active FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to lock admin users: %w", err)
+		}
+		activeAdminCount := 0
+		targetSeen := false
+		targetActive := false
+		for rows.Next() {
+			var adminID string
+			var active bool
+			if err := rows.Scan(&adminID, &active); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to scan admin row: %w", err)
+			}
+			if active {
+				activeAdminCount++
+			}
+			if adminID == id {
+				targetSeen = true
+				targetActive = active
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return fmt.Errorf("error iterating admin users: %w", err)
+		}
+		rows.Close()
+
+		if targetSeen && targetActive && activeAdminCount <= 1 {
+			return domain.ErrCannotDemoteLastAdmin
+		}
+
+		if !targetSeen {
+			err = tx.QueryRowContext(ctx, `
+				SELECT role, active FROM users WHERE id = $1 FOR UPDATE
+			`, id).Scan(&currentRole, &currentActive)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("user not found")
+				}
+				return fmt.Errorf("failed to lock user for delete: %w", err)
+			}
+		}
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT role, active FROM users WHERE id = $1 FOR UPDATE
+		`, id).Scan(&currentRole, &currentActive)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("user not found")
+			}
+			return fmt.Errorf("failed to lock user for delete: %w", err)
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM users
 		WHERE id = $1
-	`
-
-	result, err := r.db.ExecContext(ctx, query, id)
+	`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -370,10 +445,12 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-
 	if rowsAffected == 0 {
 		return fmt.Errorf("user not found")
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit user delete: %w", err)
+	}
 	return nil
 }

@@ -7,9 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrCannotDemoteLastAdmin is returned when an update would leave the system
-// with no active administrator (role demotion or deactivation).
-var ErrCannotDemoteLastAdmin = errors.New("cannot demote or deactivate the sole active administrator")
+// ErrCannotDemoteLastAdmin is returned when an update or delete would leave the
+// system with no active administrator (role demotion, deactivation, or deletion).
+var ErrCannotDemoteLastAdmin = errors.New("cannot demote, deactivate, or delete the sole active administrator")
 
 // User represents a user in the system
 type User struct {

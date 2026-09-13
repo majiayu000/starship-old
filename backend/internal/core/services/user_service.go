@@ -85,6 +85,12 @@ func (s *UserService) DeleteUser(ctx context.Context, id string) error {
 		return errors.NewNotFound("User not found", err)
 	}
 
-	// Delete the user
-	return s.userRepo.Delete(ctx, id)
+	// Delete the user (repository enforces last-active-admin invariant atomically)
+	if err := s.userRepo.Delete(ctx, id); err != nil {
+		if stderrors.Is(err, domain.ErrCannotDemoteLastAdmin) {
+			return errors.NewForbidden("Cannot delete the sole active administrator", err)
+		}
+		return err
+	}
+	return nil
 }
