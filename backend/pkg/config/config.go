@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -173,9 +174,13 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Override with environment variables
+	// Override with environment variables.
+	// Replacer maps dotted keys (auth.bootstrapAdmin.email) to conventional
+	// underscored env names (APP_AUTH_BOOTSTRAPADMIN_EMAIL).
 	v.SetEnvPrefix("APP")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	bindBootstrapAdminEnv(v)
 
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
@@ -188,6 +193,16 @@ func Load() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// bindBootstrapAdminEnv ensures deployment-controlled bootstrap credentials are
+// readable from conventional prefixed env vars even when nested Unmarshal paths
+// would otherwise miss AutomaticEnv lookups.
+func bindBootstrapAdminEnv(v *viper.Viper) {
+	_ = v.BindEnv("auth.bootstrapAdmin.email", "APP_AUTH_BOOTSTRAPADMIN_EMAIL")
+	_ = v.BindEnv("auth.bootstrapAdmin.password", "APP_AUTH_BOOTSTRAPADMIN_PASSWORD")
+	_ = v.BindEnv("auth.bootstrapAdmin.firstName", "APP_AUTH_BOOTSTRAPADMIN_FIRSTNAME")
+	_ = v.BindEnv("auth.bootstrapAdmin.lastName", "APP_AUTH_BOOTSTRAPADMIN_LASTNAME")
 }
 
 // setDefaults sets default values for configuration
