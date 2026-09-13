@@ -67,10 +67,21 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.Boots
 	password := cfg.Password
 	emailEmpty := email == ""
 	passwordEmpty := password == ""
-	// Only skip when both credentials are absent. A partial config is a startup
-	// error so clean deployments cannot silently start without an admin.
+	// Empty credentials are only allowed when a usable admin already exists.
+	// Otherwise auth-enabled deployments would start with no account able to
+	// submit reviews or grant the first admin role (registration is always role=user).
 	if emailEmpty && passwordEmpty {
-		return nil
+		hasAdmin, err := s.userRepo.HasUsableAdmin(ctx)
+		if err != nil {
+			return errors.NewInternal("Failed to check for usable administrator", err)
+		}
+		if hasAdmin {
+			return nil
+		}
+		return errors.NewBadRequest(
+			"Authentication enabled but no usable administrator exists and bootstrap admin credentials are empty",
+			nil,
+		)
 	}
 	if emailEmpty || passwordEmpty {
 		return errors.NewBadRequest("Bootstrap admin requires both email and password", nil)

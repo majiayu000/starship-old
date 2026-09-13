@@ -162,15 +162,27 @@ function parseAuthStatusPayload(payload: unknown): AuthStatus | null {
  * when a stored token is still valid (covers admin promotions without re-login).
  */
 export async function fetchAuthStatus(): Promise<AuthStatus> {
+  // Capture the token this probe was issued with so a late response for token A
+  // cannot overwrite the cached role after the user has switched to token B.
+  const requestToken = getAuthToken();
   try {
+    const headers: Record<string, string> = {};
+    if (requestToken) {
+      headers.Authorization = `Bearer ${requestToken}`;
+    }
     const response = await axios.get(`${API_BASE_URL}/auth/status`, {
-      headers: authHeaders(),
+      headers,
     });
     const status = parseAuthStatusPayload(response.data);
     if (status) {
-      if (status.role) {
+      if (status.role && getAuthToken() === requestToken) {
         // Silent write: callers re-read localStorage and decide whether to bump epoch.
         updateCachedAuthRole(status.role, { notify: false });
+      }
+      // Drop the role from the returned status when the session moved on so
+      // callers do not apply a stale role from an overlapping probe.
+      if (getAuthToken() !== requestToken) {
+        return { enabled: status.enabled, role: null };
       }
       return status;
     }

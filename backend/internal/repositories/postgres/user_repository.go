@@ -239,6 +239,22 @@ func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.U
 	return true, nil
 }
 
+// HasUsableAdmin reports whether an active admin with a non-empty password exists.
+// Passwordless admin rows cannot log in and do not satisfy the usable-admin invariant.
+func (r *UserRepository) HasUsableAdmin(ctx context.Context) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM users
+			WHERE role = 'admin' AND active = true AND password <> ''
+		)
+	`).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check for usable admin: %w", err)
+	}
+	return exists, nil
+}
+
 // usableAdminPassword reports whether stored credentials can satisfy bcrypt login.
 // Empty passwords (e.g. POST /users admin rows) are not usable administrators.
 func usableAdminPassword(password string) bool {

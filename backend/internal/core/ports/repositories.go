@@ -18,6 +18,8 @@ type UserRepository interface {
 	// CreateAdminIfAbsent inserts (or reactivates) an admin only when no active
 	// admin exists (atomic). Returns created=false when an active admin already exists.
 	CreateAdminIfAbsent(ctx context.Context, user *domain.User) (created bool, err error)
+	// HasUsableAdmin reports whether an active admin with a non-empty password exists.
+	HasUsableAdmin(ctx context.Context) (bool, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
 }

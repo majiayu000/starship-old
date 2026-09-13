@@ -23,7 +23,8 @@ type FetchItemsParams = {
 export default function ReviewPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { authEpoch, isAuthenticated, canAccessReview } = useAuthSession();
+  const { authEpoch, isAuthenticated, canAccessReview, authStatusLoaded, authRequired } =
+    useAuthSession();
   const authGenerationRef = useRef(0);
   const [dataSource, setDataSource] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
@@ -221,13 +222,27 @@ export default function ReviewPage() {
 
   const strategy = dataSource ? StrategyFactory.getStrategy(dataSource) : null;
 
-  if (loading && !dataSource) {
+  // Keep the skeleton until /auth/status completes so logged-out visitors do not
+  // briefly see an empty review UI before the login-required state.
+  if (!authStatusLoaded || (loading && !dataSource)) {
     return (
       <div className="container mx-auto p-6">
         <div className="space-y-2">
           <Skeleton className="h-8 w-full" />
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-32 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatusLoaded && !canAccessReview) {
+    return (
+      <div className="container mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-6">题目审核系统</h1>
+        <div className="p-12 text-center text-gray-600 bg-gray-50 rounded-lg space-y-2">
+          <p>{authRequired ? '请先登录后再访问审核系统。' : '当前无法访问审核系统。'}</p>
+          <p className="text-sm text-gray-500">登录后将自动加载可用数据源与待审核项目。</p>
         </div>
       </div>
     );

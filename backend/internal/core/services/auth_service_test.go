@@ -73,6 +73,15 @@ func (r *memoryUserRepo) CreateAdminIfAbsent(_ context.Context, user *domain.Use
 	return true, nil
 }
 
+func (r *memoryUserRepo) HasUsableAdmin(_ context.Context) (bool, error) {
+	for _, existing := range r.users {
+		if existing.Role == "admin" && existing.Active && existing.Password != "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *memoryUserRepo) Update(context.Context, *domain.User) error { return nil }
 func (r *memoryUserRepo) Delete(context.Context, string) error         { return nil }
 
@@ -155,16 +164,61 @@ func TestEnsureBootstrapAdminSkipsWhenAdminExists(t *testing.T) {
 	}
 }
 
-func TestEnsureBootstrapAdminNoopWithoutCredentials(t *testing.T) {
+func TestEnsureBootstrapAdminFailsWithoutCredentialsAndNoAdmin(t *testing.T) {
 	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{})
+	if err == nil {
+		t.Fatal("expected error when bootstrap credentials empty and no usable admin exists")
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users when bootstrap credentials empty, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminNoopWithoutCredentialsWhenUsableAdminExists(t *testing.T) {
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "existing-admin",
+			Email:     "root@example.com",
+			Password:  "hashed-password",
+			Role:      "admin",
+			Active:    true,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
 	svc := newTestAuthService(repo)
 
 	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{})
 	if err != nil {
 		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
 	}
-	if len(repo.users) != 0 {
-		t.Fatalf("expected no users when bootstrap credentials empty, got %d", len(repo.users))
+	if len(repo.users) != 1 {
+		t.Fatalf("expected no additional user, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminFailsWithoutCredentialsWhenOnlyPasswordlessAdmin(t *testing.T) {
+	now := time.Now()
+	repo := &memoryUserRepo{
+		users: []*domain.User{{
+			ID:        "passwordless-admin",
+			Email:     "empty@example.com",
+			Password:  "",
+			Role:      "admin",
+			Active:    true,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{})
+	if err == nil {
+		t.Fatal("expected error when only a passwordless admin exists and bootstrap credentials are empty")
 	}
 }
 
