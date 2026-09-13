@@ -71,6 +71,7 @@ func RegisterRoutes(
 				users.GET("", adminRoleMiddleware, userHandler.GetUsers)
 				users.GET("/:id", userHandler.GetUser)
 				users.POST("", adminRoleMiddleware, userHandler.CreateUser)
+				// Self-or-admin authorization and privileged-field stripping are enforced in UpdateUser.
 				users.PUT("/:id", userHandler.UpdateUser)
 				users.DELETE("/:id", adminRoleMiddleware, userHandler.DeleteUser)
 			}

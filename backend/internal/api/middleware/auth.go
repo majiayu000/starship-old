@@ -48,21 +48,22 @@ func Auth(authService ports.AuthService) gin.HandlerFunc {
 	}
 }
 
+// CurrentUser returns the authenticated user stored in the Gin context by Auth.
+func CurrentUser(c *gin.Context) (*domain.User, bool) {
+	user, exists := c.Get("user")
+	if !exists {
+		return nil, false
+	}
+	userObj, ok := user.(*domain.User)
+	return userObj, ok
+}
+
 // RequireRole creates a middleware that requires a specific role
 func RequireRole(requiredRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get user from context
-		user, exists := c.Get("user")
-		if !exists {
-			utils.ErrorResponse(c, errors.NewUnauthorized("User not authenticated", nil))
-			c.Abort()
-			return
-		}
-
-		// Check if user has required role
-		userObj, ok := user.(*domain.User)
+		userObj, ok := CurrentUser(c)
 		if !ok {
-			utils.ErrorResponse(c, errors.NewUnauthorized("Invalid user type", nil))
+			utils.ErrorResponse(c, errors.NewUnauthorized("User not authenticated", nil))
 			c.Abort()
 			return
 		}
