@@ -28,6 +28,7 @@ export function sanitizeSvg(dirty: string): string {
 export function sanitizeRichHtml(dirty: string): string {
   if (!dirty) return '';
   return DOMPurify.sanitize(dirty, {
-    USE_PROFILES: { html: true, svg: true, svgFilters: true },
+    // Include mathMl so SAT figure/table MathML (math/mfrac/mfenced) is preserved.
+    USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
   });
 }
