@@ -113,3 +113,37 @@ func TestUnauthenticatedReviewWriteReturns401(t *testing.T) {
 		t.Fatal("expected ReviewItem handler/service not to be invoked without auth")
 	}
 }
+
+func TestUnauthenticatedReviewWriteReturns401WithoutUserService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	cfg := &config.Config{}
+	log := logger.New(config.LoggerConfig{Level: "error", Format: "text"})
+	reviewSvc := &stubReviewService{}
+
+	// Auth is available but user management is not — middleware must still be wired.
+	RegisterRoutes(
+		router,
+		nil,
+		&stubAuthService{},
+		nil,
+		reviewSvc,
+		cfg,
+		log,
+	)
+
+	body := `{"status":"approved"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/review/books/items/item-1/review", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d; body=%s", http.StatusUnauthorized, rec.Code, rec.Body.String())
+	}
+	if reviewSvc.reviewCalled {
+		t.Fatal("expected ReviewItem handler/service not to be invoked without auth")
+	}
+}

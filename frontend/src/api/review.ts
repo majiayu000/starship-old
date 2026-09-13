@@ -1,17 +1,27 @@
 import axios from 'axios';
 import { PaginatedResult, QueryParams, ReviewStatusUpdate } from '../models/reviewable-item';
+import { authHeaders } from './auth';
 import { DataSourceItemType, FilterOptions } from './types';
 
 // 从环境变量读取API地址，如果未设置则使用默认值（开发环境中指向8080端口）
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
+function isUnauthorized(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 401;
+}
+
 export const reviewApi = {
   // 获取所有数据源
   getDataSources: async (): Promise<string[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/review/sources`);
+      const response = await axios.get(`${API_BASE_URL}/review/sources`, {
+        headers: authHeaders(),
+      });
       return response.data;
     } catch (error) {
+      if (isUnauthorized(error)) {
+        throw new Error('Authentication required to load review sources');
+      }
       console.error('获取数据源失败:', error);
       // 返回模拟数据，以防API不可用
       return ['sat_oneprep', 'sat_ixl'];
@@ -21,9 +31,14 @@ export const reviewApi = {
   // 获取过滤选项
   getFilterOptions: async (dataSource: string): Promise<FilterOptions> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/filters`);
+      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/filters`, {
+        headers: authHeaders(),
+      });
       return response.data;
     } catch (error) {
+      if (isUnauthorized(error)) {
+        throw new Error('Authentication required to load filter options');
+      }
       console.error('获取过滤选项失败:', error);
       // 返回默认的过滤选项
       return {
@@ -40,9 +55,15 @@ export const reviewApi = {
     params: QueryParams
   ): Promise<PaginatedResult<DataSourceItemType[T]>> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items`, { params });
+      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items`, {
+        params,
+        headers: authHeaders(),
+      });
       return response.data;
     } catch (error) {
+      if (isUnauthorized(error)) {
+        throw new Error('Authentication required to load review items');
+      }
       console.error('获取项目列表失败:', error);
       // 返回空列表作为模拟数据
       return {
@@ -62,10 +83,15 @@ export const reviewApi = {
     id: string
   ): Promise<DataSourceItemType[T]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items/${id}`);
+      const response = await axios.get(`${API_BASE_URL}/review/${dataSource}/items/${id}`, {
+        headers: authHeaders(),
+      });
       return response.data;
     } catch (error) {
       console.error('获取项目详情失败:', error);
+      if (isUnauthorized(error)) {
+        throw new Error('Authentication required to load review item');
+      }
       throw new Error('获取项目详情失败');
     }
   },
@@ -92,7 +118,8 @@ export const reviewApi = {
         formattedUpdate,
         {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...authHeaders(),
           }
         }
       );
@@ -102,7 +129,10 @@ export const reviewApi = {
         console.error('响应数据:', error.response.data);
         console.error('响应状态:', error.response.status);
       }
+      if (isUnauthorized(error)) {
+        throw new Error('Authentication required to submit a review');
+      }
       throw new Error(error.response?.data?.error || '提交审核失败');
     }
   }
-}; 
+};
