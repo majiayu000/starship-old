@@ -254,14 +254,20 @@ export default function QuestionsPage() {
   
   // 设置策略的回调函数; clear on logout so retained strategy callbacks cannot repopulate
   useEffect(() => {
-    if (!strategy) return;
-    if (!isAuthenticated) {
-      strategy.setItemUpdateCallback(() => {});
+    if (!strategy || typeof (strategy as any).setItemUpdateCallback !== 'function') {
       return;
     }
-    strategy.setItemUpdateCallback(handleItemUpdated);
+    if (!isAuthenticated) {
+      (strategy as any).setItemUpdateCallback(() => {});
+      return;
+    }
+    const generation = authGenerationRef.current;
+    (strategy as any).setItemUpdateCallback((updatedItem: any) => {
+      if (generation !== authGenerationRef.current) return;
+      handleItemUpdated(updatedItem);
+    });
     return () => {
-      strategy.setItemUpdateCallback(() => {});
+      (strategy as any).setItemUpdateCallback(() => {});
     };
   }, [strategy, authEpoch, isAuthenticated, items, filters.status]);
 
