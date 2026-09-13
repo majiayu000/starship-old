@@ -50,6 +50,17 @@ func (r *memoryUserRepo) Create(_ context.Context, user *domain.User) error {
 	return nil
 }
 
+func (r *memoryUserRepo) CreateAdminIfAbsent(_ context.Context, user *domain.User) (bool, error) {
+	for _, existing := range r.users {
+		if existing.Role == "admin" {
+			return false, nil
+		}
+	}
+	copy := *user
+	r.users = append(r.users, &copy)
+	return true, nil
+}
+
 func (r *memoryUserRepo) Update(context.Context, *domain.User) error { return nil }
 func (r *memoryUserRepo) Delete(context.Context, string) error         { return nil }
 
@@ -68,20 +79,44 @@ func newTestAuthService(repo *memoryUserRepo) *AuthService {
 	return NewAuthService(repo, auth.NewJWTService(cfg), log)
 }
 
-func TestRegisterBootstrapsFirstAdmin(t *testing.T) {
+func TestRegisterNeverPromotesToAdmin(t *testing.T) {
 	repo := &memoryUserRepo{}
 	svc := newTestAuthService(repo)
 
-	user, err := svc.Register(context.Background(), "admin@example.com", "password", "Ada", "Admin")
+	user, err := svc.Register(context.Background(), "first@example.com", "password", "First", "User")
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
-	if user.Role != "admin" {
-		t.Fatalf("expected first registrant role admin, got %q", user.Role)
+	if user.Role != "user" {
+		t.Fatalf("expected public registrant role user, got %q", user.Role)
 	}
 }
 
-func TestRegisterDoesNotPromoteWhenAdminExists(t *testing.T) {
+func TestEnsureBootstrapAdminCreatesFirstAdmin(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:     "admin@example.com",
+		Password:  "password",
+		FirstName: "Ada",
+		LastName:  "Admin",
+	})
+	if err != nil {
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
+	}
+	if len(repo.users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(repo.users))
+	}
+	if repo.users[0].Role != "admin" {
+		t.Fatalf("expected bootstrap role admin, got %q", repo.users[0].Role)
+	}
+	if repo.users[0].Email != "admin@example.com" {
+		t.Fatalf("expected bootstrap email admin@example.com, got %q", repo.users[0].Email)
+	}
+}
+
+func TestEnsureBootstrapAdminSkipsWhenAdminExists(t *testing.T) {
 	now := time.Now()
 	repo := &memoryUserRepo{
 		users: []*domain.User{{
@@ -95,11 +130,27 @@ func TestRegisterDoesNotPromoteWhenAdminExists(t *testing.T) {
 	}
 	svc := newTestAuthService(repo)
 
-	user, err := svc.Register(context.Background(), "user@example.com", "password", "Normal", "User")
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{
+		Email:    "other-admin@example.com",
+		Password: "password",
+	})
 	if err != nil {
-		t.Fatalf("Register returned error: %v", err)
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
 	}
-	if user.Role != "user" {
-		t.Fatalf("expected subsequent registrant role user, got %q", user.Role)
+	if len(repo.users) != 1 {
+		t.Fatalf("expected no additional user, got %d", len(repo.users))
+	}
+}
+
+func TestEnsureBootstrapAdminNoopWithoutCredentials(t *testing.T) {
+	repo := &memoryUserRepo{}
+	svc := newTestAuthService(repo)
+
+	err := svc.EnsureBootstrapAdmin(context.Background(), config.BootstrapAdminConfig{})
+	if err != nil {
+		t.Fatalf("EnsureBootstrapAdmin returned error: %v", err)
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected no users when bootstrap credentials empty, got %d", len(repo.users))
 	}
 }

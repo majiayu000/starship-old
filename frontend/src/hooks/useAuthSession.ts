@@ -17,6 +17,14 @@ export type AuthSessionState = {
   isAdmin: boolean;
 };
 
+const ANONYMOUS_SESSION: Omit<AuthSessionState, 'authEpoch'> = {
+  token: null,
+  username: null,
+  role: null,
+  isAuthenticated: false,
+  isAdmin: false,
+};
+
 function readSession(): Omit<AuthSessionState, 'authEpoch'> {
   const token = getAuthToken();
   const role = getAuthRole();
@@ -31,9 +39,10 @@ function readSession(): Omit<AuthSessionState, 'authEpoch'> {
 
 /** Subscribe to login/logout so protected pages can reload or clear state. */
 export function useAuthSession(): AuthSessionState {
+  // Always start anonymous so SSR markup matches the first client render.
   const [session, setSession] = useState<AuthSessionState>(() => ({
     authEpoch: 0,
-    ...readSession(),
+    ...ANONYMOUS_SESSION,
   }));
 
   useEffect(() => {
@@ -44,7 +53,7 @@ export function useAuthSession(): AuthSessionState {
       }));
     };
 
-    // Hydrate from localStorage after mount (SSR-safe initial nulls).
+    // Hydrate from localStorage only after mount.
     setSession((prev) => ({
       ...prev,
       ...readSession(),

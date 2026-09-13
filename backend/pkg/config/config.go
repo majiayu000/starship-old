@@ -82,6 +82,17 @@ type AuthConfig struct {
 	Enabled        bool
 	JWT            JWTConfig
 	EnabledMethods []string // "jwt", "oauth", "basic", etc.
+	// BootstrapAdmin provisions the first admin at process start when set.
+	// Leave email/password empty to skip (no public-register promotion).
+	BootstrapAdmin BootstrapAdminConfig `mapstructure:"bootstrapAdmin"`
+}
+
+// BootstrapAdminConfig holds deployment-controlled first-admin credentials.
+type BootstrapAdminConfig struct {
+	Email     string `mapstructure:"email"`
+	Password  string `mapstructure:"password"`
+	FirstName string `mapstructure:"firstName"`
+	LastName  string `mapstructure:"lastName"`
 }
 
 // JWTConfig holds JWT authentication configuration
@@ -220,6 +231,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.enabledMethods", []string{"jwt"})
 	v.SetDefault("auth.jwt.issuer", "api")
 	v.SetDefault("auth.jwt.expiryDuration", "24h")
+	v.SetDefault("auth.bootstrapAdmin.email", "")
+	v.SetDefault("auth.bootstrapAdmin.password", "")
+	v.SetDefault("auth.bootstrapAdmin.firstName", "Admin")
+	v.SetDefault("auth.bootstrapAdmin.lastName", "User")
 
 	// Features defaults
 	v.SetDefault("features.enable_auth", true)

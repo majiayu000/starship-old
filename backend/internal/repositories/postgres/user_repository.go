@@ -154,6 +154,57 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
+// bootstrapAdminAdvisoryLock is a fixed key for serializing first-admin inserts.
+const bootstrapAdminAdvisoryLock int64 = 0x73746172 // "star"
+
+// CreateAdminIfAbsent inserts the user only when no admin exists.
+// Uses a transaction advisory lock so concurrent startups cannot both succeed.
+func (r *UserRepository) CreateAdminIfAbsent(ctx context.Context, user *domain.User) (bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin bootstrap admin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, bootstrapAdminAdvisoryLock); err != nil {
+		return false, fmt.Errorf("failed to acquire bootstrap admin lock: %w", err)
+	}
+
+	var adminExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE role = 'admin')`).Scan(&adminExists); err != nil {
+		return false, fmt.Errorf("failed to check for existing admin: %w", err)
+	}
+	if adminExists {
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("failed to commit bootstrap admin transaction: %w", err)
+		}
+		return false, nil
+	}
+
+	query := `
+		INSERT INTO users (id, email, password, first_name, last_name, role, active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+	if _, err := tx.ExecContext(ctx, query,
+		user.ID,
+		user.Email,
+		user.Password,
+		user.FirstName,
+		user.LastName,
+		user.Role,
+		user.Active,
+		user.CreatedAt,
+		user.UpdatedAt,
+	); err != nil {
+		return false, fmt.Errorf("failed to create bootstrap admin: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit bootstrap admin transaction: %w", err)
+	}
+	return true, nil
+}
+
 // Update updates an existing user
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	query := `

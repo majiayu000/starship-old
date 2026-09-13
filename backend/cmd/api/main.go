@@ -87,7 +87,11 @@ func main() {
 
 		// Create services
 		userService = services.NewUserService(userRepo, l)
-		authService = services.NewAuthService(userRepo, jwtService, l)
+		authSvc := services.NewAuthService(userRepo, jwtService, l)
+		if err := authSvc.EnsureBootstrapAdmin(context.Background(), cfg.Auth.BootstrapAdmin); err != nil {
+			l.Fatal("Failed to ensure bootstrap admin: " + err.Error())
+		}
+		authService = authSvc
 
 		l.LogBusiness(
 			logger.LogLevelInfo,

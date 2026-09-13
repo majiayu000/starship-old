@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"strings"
 
 	"github.com/majiayu000/cc-starship/internal/core/domain"
 	"github.com/majiayu000/cc-starship/internal/core/ports"
 	"github.com/majiayu000/cc-starship/internal/infrastructure/auth"
+	"github.com/majiayu000/cc-starship/pkg/config"
 	"github.com/majiayu000/cc-starship/pkg/errors"
 	"github.com/majiayu000/cc-starship/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
@@ -41,25 +43,9 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 		return nil, errors.NewInternal("Failed to hash password", err)
 	}
 
-	// Create new user
+	// Create new user (always role=user). First admin is provisioned only via
+	// EnsureBootstrapAdmin using deployment-controlled credentials.
 	user := domain.NewUser(email, string(hashedPassword), firstName, lastName)
-
-	// Bootstrap: when no admin exists yet, promote this registrant so review
-	// writes are reachable without manual DB edits after a clean deploy.
-	existingUsers, err := s.userRepo.FindAll(ctx)
-	if err != nil {
-		return nil, errors.NewInternal("Failed to check existing users for admin bootstrap", err)
-	}
-	hasAdmin := false
-	for _, existing := range existingUsers {
-		if existing.Role == "admin" {
-			hasAdmin = true
-			break
-		}
-	}
-	if !hasAdmin {
-		user.Role = "admin"
-	}
 
 	// Save user to repository
 	if err := s.userRepo.Create(ctx, user); err != nil {
@@ -67,6 +53,43 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 	}
 
 	return user, nil
+}
+
+// EnsureBootstrapAdmin creates the first admin from deployment config when no
+// admin exists. Safe to call on every startup; concurrent callers serialize via
+// CreateAdminIfAbsent. Public registration never promotes to admin.
+func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg config.BootstrapAdminConfig) error {
+	email := strings.TrimSpace(cfg.Email)
+	password := cfg.Password
+	if email == "" || password == "" {
+		return nil
+	}
+
+	firstName := strings.TrimSpace(cfg.FirstName)
+	if firstName == "" {
+		firstName = "Admin"
+	}
+	lastName := strings.TrimSpace(cfg.LastName)
+	if lastName == "" {
+		lastName = "User"
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.NewInternal("Failed to hash bootstrap admin password", err)
+	}
+
+	user := domain.NewUser(email, string(hashedPassword), firstName, lastName)
+	user.Role = "admin"
+
+	created, err := s.userRepo.CreateAdminIfAbsent(ctx, user)
+	if err != nil {
+		return errors.NewInternal("Failed to bootstrap admin user", err)
+	}
+	if created {
+		s.logger.Info("Bootstrapped first admin user from deployment config: " + email)
+	}
+	return nil
 }
 
 // Login authenticates a user and returns a JWT token

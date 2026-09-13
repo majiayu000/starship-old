@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { PaginatedResult, QueryParams, ReviewStatusUpdate } from '../models/reviewable-item';
-import { authHeaders } from './auth';
+import { authHeaders, clearAuthSession } from './auth';
 import { DataSourceItemType, FilterOptions } from './types';
 
 // 从环境变量读取API地址，如果未设置则使用默认值（开发环境中指向8080端口）
@@ -20,6 +20,7 @@ export const reviewApi = {
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
+        clearAuthSession();
         throw new Error('Authentication required to load review sources');
       }
       console.error('获取数据源失败:', error);
@@ -37,6 +38,7 @@ export const reviewApi = {
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
+        clearAuthSession();
         throw new Error('Authentication required to load filter options');
       }
       console.error('获取过滤选项失败:', error);
@@ -62,6 +64,7 @@ export const reviewApi = {
       return response.data;
     } catch (error) {
       if (isUnauthorized(error)) {
+        clearAuthSession();
         throw new Error('Authentication required to load review items');
       }
       console.error('获取项目列表失败:', error);
@@ -90,6 +93,7 @@ export const reviewApi = {
     } catch (error) {
       console.error('获取项目详情失败:', error);
       if (isUnauthorized(error)) {
+        clearAuthSession();
         throw new Error('Authentication required to load review item');
       }
       throw new Error('获取项目详情失败');
@@ -130,6 +134,7 @@ export const reviewApi = {
         console.error('响应状态:', error.response.status);
       }
       if (isUnauthorized(error)) {
+        clearAuthSession();
         throw new Error('Authentication required to submit a review');
       }
       throw new Error(error.response?.data?.error || '提交审核失败');

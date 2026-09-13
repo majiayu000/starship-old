@@ -15,6 +15,9 @@ type UserRepository interface {
 
 	// Create/Update/Delete
 	Create(ctx context.Context, user *domain.User) error
+	// CreateAdminIfAbsent inserts user only when no admin row exists (atomic).
+	// Returns created=false when an admin already exists.
+	CreateAdminIfAbsent(ctx context.Context, user *domain.User) (created bool, err error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
 }

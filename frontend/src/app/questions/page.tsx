@@ -54,11 +54,13 @@ export default function QuestionsPage() {
       return;
     }
 
+    let cancelled = false;
     const fetchDataSources = async () => {
       try {
         setLoading(true);
         setError(null);
         const sources = await reviewApi.getDataSources();
+        if (cancelled) return;
         setAvailableSources(sources);
         
         const dataSourceParam = searchParams.get('dataSource');
@@ -76,24 +78,33 @@ export default function QuestionsPage() {
           setPage(parseInt(pageParam, 10));
         }
       } catch (err) {
+        if (cancelled) return;
         setError('获取数据源失败');
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
     
     fetchDataSources();
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, authEpoch, isAuthenticated]);
 
   // 数据源变化时获取筛选选项
   useEffect(() => {
     if (!isAuthenticated || !dataSource) return;
-    
+
+    let cancelled = false;
     const fetchFilterOptions = async () => {
       try {
         const options = await reviewApi.getFilterOptions(dataSource);
+        if (cancelled) return;
         setFilterOptions(options);
       } catch (err) {
+        if (cancelled) return;
         setError('获取筛选选项失败');
       }
     };
@@ -105,14 +116,21 @@ export default function QuestionsPage() {
     updateUrl();
     
     // 获取题目列表
-    fetchItems();
+    fetchItems({ cancelled: () => cancelled });
+    return () => {
+      cancelled = true;
+    };
   }, [dataSource, authEpoch, isAuthenticated]);
 
   // 页码或筛选条件变化时获取题目列表
   useEffect(() => {
     if (!isAuthenticated || !dataSource) return;
-    fetchItems();
+    let cancelled = false;
+    fetchItems({ cancelled: () => cancelled });
     updateUrl();
+    return () => {
+      cancelled = true;
+    };
   }, [page, filters, dataSource, authEpoch, isAuthenticated]);
 
   // 更新URL
@@ -123,8 +141,9 @@ export default function QuestionsPage() {
     router.push(`/questions?${params.toString()}`);
   };
   
-  // 获取题目列表
-  const fetchItems = async () => {
+  // 获取题目列表 — ignore results from a prior auth epoch after logout/cleanup
+  const fetchItems = async (opts?: { cancelled?: () => boolean }) => {
+    const isStale = () => Boolean(opts?.cancelled?.());
     setLoading(true);
     try {
       const strategy = StrategyFactory.getStrategy(dataSource as string);
@@ -135,15 +154,19 @@ export default function QuestionsPage() {
         page: page,
         pageSize: pageSize,
       });
+      if (isStale()) return;
       
       setItems(result.items);
       setTotalItems(result.totalItems);
       setTotalPages(result.totalPages);
     } catch (err) {
+      if (isStale()) return;
       setError('获取题目列表失败');
       setItems([]);
     } finally {
-      setLoading(false);
+      if (!isStale()) {
+        setLoading(false);
+      }
     }
   };
 
